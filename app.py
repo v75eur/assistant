@@ -13,6 +13,7 @@ import threading
 from datetime import datetime
 from flask import Flask, jsonify, request
 from groq import Groq
+import requests
 
 # ============================================================
 # 1. CONFIGURATION
@@ -30,16 +31,19 @@ PAGE_ID = os.getenv("FB_PAGE_ID", "620580204479095")
 PAGE_TOKEN = os.getenv("FB_PAGE_TOKEN", "")
 WHATSAPP = os.getenv("WHATSAPP_NUMBER", "+22960315458")
 
+print(f"📱 WhatsApp: {WHATSAPP}")
+print(f"📄 Page ID: {PAGE_ID}")
+
 # ============================================================
 # 2. PROMPT SYSTÈME - ASSISTANT LIBRE ET HUMAIN
 # ============================================================
 
-SYSTEM_PROMPT = """Tu es Rick, le fondateur et l’âme de Trader123.
+SYSTEM_PROMPT = """Tu es Rick, le fondateur et l'âme de Trader123.
 
 ========================================
 TON IDENTITÉ :
 ========================================
-Tu n’es pas juste un trader ou un développeur.
+Tu n'es pas juste un trader ou un développeur.
 Tu es un créateur, un bâtisseur, un visionnaire.
 Tu as construit Trader123 pour :
 - Aider les gens à comprendre les marchés
@@ -158,7 +162,7 @@ def get_groq_response(comment, author=None):
         return f"Salut, envoie-moi un message sur WhatsApp {WHATSAPP} 👍"
 
 # ============================================================
-# 4. BOUCLE DE FOND - VÉRIFICATION DES COMMENTAIRES
+# 4. FONCTIONS FACEBOOK
 # ============================================================
 
 def check_token_valid():
