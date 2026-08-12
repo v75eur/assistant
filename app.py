@@ -2,7 +2,7 @@
 # ============================================================
 # ASSISTANT GROQ - SERVEUR FLASK POUR RENDER
 # Page : Trader123
-# Version : 2.0 - Assistant libre et humain
+# Version : 2.1 - Assistant libre et humain
 # ============================================================
 
 import os
@@ -290,7 +290,7 @@ def home():
         "message": "🤖 Assistant Groq - Trader123",
         "time": datetime.now().isoformat(),
         "check_interval": "5 minutes",
-        "version": "2.0",
+        "version": "2.1",
         "whatsapp": WHATSAPP
     })
 
