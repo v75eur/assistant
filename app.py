@@ -1,12 +1,10 @@
 #!/usr/bin/env python3
 # ============================================================
 # ASSISTANT GROQ - SERVEUR FLASK POUR RENDER
-# Page : Trader123
-# Version : 2.1 - Assistant libre et humain
+# Version : 2.2 - Sans doublons
 # ============================================================
 
 import os
-import sys
 import time
 import random
 import threading
@@ -21,21 +19,31 @@ import requests
 
 app = Flask(__name__)
 
-# Clé API Groq
 GROQ_API_KEY = os.getenv("GROQ_API_KEY_1", "")
-if not GROQ_API_KEY:
-    print("⚠️ GROQ_API_KEY_1 non définie")
-
-# Configuration Facebook
 PAGE_ID = os.getenv("FB_PAGE_ID", "620580204479095")
 PAGE_TOKEN = os.getenv("FB_PAGE_TOKEN", "")
 WHATSAPP = os.getenv("WHATSAPP_NUMBER", "+22960315458")
 
-print(f"📱 WhatsApp: {WHATSAPP}")
-print(f"📄 Page ID: {PAGE_ID}")
+# ============================================================
+# 2. SUIVI DES COMMENTAIRES (POUR ÉVITER LES DOUBLONS)
+# ============================================================
+
+processed_comments = set()  # Stocke les IDs des commentaires déjà traités
+
+def is_comment_processed(comment_id):
+    """Vérifie si un commentaire a déjà été traité."""
+    return comment_id in processed_comments
+
+def mark_comment_processed(comment_id):
+    """Marque un commentaire comme traité."""
+    processed_comments.add(comment_id)
+    # Nettoyer la mémoire (garder les 100 derniers)
+    if len(processed_comments) > 100:
+        to_remove = list(processed_comments)[0]
+        processed_comments.remove(to_remove)
 
 # ============================================================
-# 2. PROMPT SYSTÈME - ASSISTANT LIBRE ET HUMAIN
+# 3. PROMPT SYSTÈME
 # ============================================================
 
 SYSTEM_PROMPT = """Tu es Rick, le fondateur et l'âme de Trader123.
@@ -43,13 +51,8 @@ SYSTEM_PROMPT = """Tu es Rick, le fondateur et l'âme de Trader123.
 ========================================
 TON IDENTITÉ :
 ========================================
-Tu n'es pas juste un trader ou un développeur.
 Tu es un créateur, un bâtisseur, un visionnaire.
-Tu as construit Trader123 pour :
-- Aider les gens à comprendre les marchés
-- Proposer des formations accessibles
-- Automatiser avec des bots et assistants IA
-- Créer une communauté autour du trading et du développement
+Tu as construit Trader123 pour aider les gens à comprendre les marchés, proposer des formations, et automatiser avec des bots et assistants IA.
 
 Tu es :
 - Un trader professionnel depuis 8 ans
@@ -57,15 +60,6 @@ Tu es :
 - Un formateur passionné
 - Un entrepreneur qui voit grand
 - Un humain joyeux, accessible, inspirant
-
-========================================
-TA MISSION :
-========================================
-- Rendre le trading accessible à tous
-- Automatiser les tâches pour libérer du temps
-- Former les gens avec des méthodes simples et efficaces
-- Créer une communauté de traders et de créateurs
-- Montrer que le futur est entre nos mains
 
 ========================================
 TON STYLE D'ÉCRITURE :
@@ -86,21 +80,6 @@ CE QUE TU PROPOSES :
 ✅ Développement sur mesure (bots, sites, assistants)
 
 ========================================
-TA VISION POUR LE FUTUR :
-========================================
-"Je veux que chaque trader, chaque entrepreneur, chaque curieux puisse accéder à des outils qui lui font gagner du temps, de l'argent, et de la clarté.
-Je veux créer un écosystème où l'humain et l'IA collaborent.
-Je veux que Trader123 soit une référence, pas juste une page."
-
-========================================
-CE QUE TU FAIS RÊVER :
-========================================
-- La liberté de trader où tu veux, quand tu veux
-- La puissance d'avoir un assistant qui travaille pour toi
-- La fierté de maîtriser un métier d'avenir
-- La possibilité de bâtir ton propre empire numérique
-
-========================================
 CE QUE TU NE FAIS PAS :
 ========================================
 ❌ Promettre des gains financiers garantis
@@ -116,18 +95,10 @@ COMMENT TU FINIS :
 - "On construit ensemble ? WhatsApp +22960315458"
 - "Viens en privé, je te montre ce que je prépare +22960315458"
 - "Hésite pas, je réponds toujours +22960315458"
-
-========================================
-RAPPEL FINAL :
-========================================
-Tu es une marque, une vision, une énergie.
-Tu inspires, tu éduques, tu construis.
-Tu es le fondateur, le créateur, le bâtisseur.
-Tu ne te contentes pas de suivre, tu ouvres la voie.
 """
 
 # ============================================================
-# 3. FONCTION GROQ
+# 4. FONCTIONS GROQ ET FACEBOOK
 # ============================================================
 
 def get_groq_response(comment, author=None):
@@ -150,20 +121,12 @@ def get_groq_response(comment, author=None):
             temperature=0.9,
         )
         reply = response.choices[0].message.content
-
-        # S'assurer que le WhatsApp est présent
         if WHATSAPP not in reply:
             reply += f" 📱 WhatsApp : {WHATSAPP}"
-
         return reply
-
     except Exception as e:
         print(f"❌ Erreur Groq: {e}")
         return f"Salut, envoie-moi un message sur WhatsApp {WHATSAPP} 👍"
-
-# ============================================================
-# 4. FONCTIONS FACEBOOK
-# ============================================================
 
 def check_token_valid():
     """Vérifie si le token Facebook est valide."""
@@ -195,13 +158,18 @@ def get_comments(limit=5):
                 for comment in post['comments'].get('data', []):
                     author = comment.get('from', {}).get('name', 'Inconnu')
                     author_id = comment.get('from', {}).get('id', '')
+                    comment_id = comment.get('id', '')
 
                     # Ignorer la page elle-même
                     if author_id == PAGE_ID:
                         continue
 
+                    # Ignorer les commentaires déjà traités
+                    if is_comment_processed(comment_id):
+                        continue
+
                     comments.append({
-                        'id': comment['id'],
+                        'id': comment_id,
                         'message': comment.get('message', ''),
                         'author': author,
                         'author_id': author_id
@@ -239,10 +207,10 @@ def process_comments():
     comments = get_comments(limit=5)
 
     if not comments:
-        print("📭 Aucun commentaire")
+        print("📭 Aucun nouveau commentaire")
         return
 
-    print(f"📝 {len(comments)} commentaires trouvés")
+    print(f"📝 {len(comments)} nouveau(x) commentaire(s) trouvé(s)")
 
     for c in comments:
         if not c['message'] or len(c['message']) < 3:
@@ -259,6 +227,7 @@ def process_comments():
 
         if success:
             print(f"✅ Réponse: {reply[:80]}...")
+            mark_comment_processed(c['id'])
         else:
             print(f"❌ Échec réponse")
 
@@ -290,17 +259,13 @@ def home():
         "message": "🤖 Assistant Groq - Trader123",
         "time": datetime.now().isoformat(),
         "check_interval": "5 minutes",
-        "version": "2.1",
+        "version": "2.2",
         "whatsapp": WHATSAPP
     })
 
 @app.route('/ping')
 def ping():
-    """Pour cron-job.org (garder le service éveillé)."""
-    return jsonify({
-        "status": "alive",
-        "time": datetime.now().isoformat()
-    })
+    return jsonify({"status": "alive", "time": datetime.now().isoformat()})
 
 @app.route('/health')
 def health():
@@ -317,7 +282,6 @@ def wakeup():
 
 @app.route('/comment', methods=['POST'])
 def comment():
-    """Ajoute un commentaire manuellement (pour test)."""
     try:
         data = request.json
         comment = data.get('comment', '')
