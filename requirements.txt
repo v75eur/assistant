@@ -1,5 +1,6 @@
-flask==3.1.2
-gunicorn==23.0.0
+Flask==2.3.3
+Werkzeug==2.3.8
+gunicorn==21.2.0
 groq==0.4.2
-requests==2.32.5
-python-dotenv==1.1.1
+requests==2.31.0
+python-dotenv==1.0.0
