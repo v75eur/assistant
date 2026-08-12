@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 # ============================================================
 # ASSISTANT GROQ - SERVEUR FLASK POUR RENDER
-# Version : 2.2 - Sans doublons
+# Version : 3.0 - Mémoire + Anti-doublon
 # ============================================================
 
 import os
 import time
 import random
 import threading
-from datetime import datetime
+import json
+from datetime import datetime, timedelta
 from flask import Flask, jsonify, request
 from groq import Groq
 import requests
@@ -25,28 +26,128 @@ PAGE_TOKEN = os.getenv("FB_PAGE_TOKEN", "")
 WHATSAPP = os.getenv("WHATSAPP_NUMBER", "+22960315458")
 
 # ============================================================
-# 2. SUIVI DES COMMENTAIRES (POUR ÉVITER LES DOUBLONS)
+# 2. MÉMOIRE DES CONVERSATIONS
 # ============================================================
 
-processed_comments = set()  # Stocke les IDs des commentaires déjà traités
+# Structure : { "user_id": { "name": "Rick", "last_comment": "...", "history": [...], "last_seen": "2026-08-12T19:00:00" } }
+memory = {}
+MEMORY_FILE = "/tmp/assistant_memory.json"
+MAX_HISTORY = 10  # Garder les 10 derniers échanges
+
+def load_memory():
+    """Charge la mémoire depuis le fichier."""
+    global memory
+    try:
+        if os.path.exists(MEMORY_FILE):
+            with open(MEMORY_FILE, 'r') as f:
+                memory = json.load(f)
+    except Exception as e:
+        print(f"⚠️ Erreur chargement mémoire: {e}")
+
+def save_memory():
+    """Sauvegarde la mémoire dans le fichier."""
+    try:
+        with open(MEMORY_FILE, 'w') as f:
+            json.dump(memory, f)
+    except Exception as e:
+        print(f"⚠️ Erreur sauvegarde mémoire: {e}")
+
+def get_user_memory(user_id, user_name=None):
+    """Récupère la mémoire d'un utilisateur."""
+    if user_id not in memory:
+        memory[user_id] = {
+            "name": user_name or "Visiteur",
+            "history": [],
+            "last_seen": datetime.now().isoformat(),
+            "last_comment": ""
+        }
+        save_memory()
+    
+    # Mettre à jour le nom si disponible
+    if user_name and memory[user_id]["name"] == "Visiteur":
+        memory[user_id]["name"] = user_name
+        save_memory()
+    
+    return memory[user_id]
+
+def update_user_memory(user_id, comment, reply):
+    """Met à jour la mémoire d'un utilisateur."""
+    if user_id not in memory:
+        memory[user_id] = {"name": "Visiteur", "history": [], "last_seen": "", "last_comment": ""}
+    
+    memory[user_id]["last_seen"] = datetime.now().isoformat()
+    memory[user_id]["last_comment"] = comment
+    
+    # Ajouter à l'historique
+    memory[user_id]["history"].append({
+        "time": datetime.now().isoformat(),
+        "user": comment,
+        "assistant": reply
+    })
+    
+    # Garder seulement les 10 derniers
+    if len(memory[user_id]["history"]) > MAX_HISTORY:
+        memory[user_id]["history"] = memory[user_id]["history"][-MAX_HISTORY:]
+    
+    save_memory()
+
+def build_context(user_id):
+    """Construit le contexte de la conversation pour l'IA."""
+    user_data = get_user_memory(user_id)
+    history = user_data.get("history", [])
+    
+    if not history:
+        return None
+    
+    # Construire un résumé des derniers échanges
+    context = "Historique de la conversation avec cet utilisateur :\n"
+    for entry in history[-5:]:  # Les 5 derniers échanges
+        context += f"- Utilisateur : {entry['user']}\n"
+        context += f"- Réponse : {entry['assistant']}\n"
+    
+    return context
+
+# ============================================================
+# 3. SUIVI DES COMMENTAIRES (ANTI-DOUBLON)
+# ============================================================
+
+processed_comments = set()
+PROCESSED_FILE = "/tmp/processed_comments.json"
+
+def load_processed():
+    """Charge les commentaires traités."""
+    global processed_comments
+    try:
+        if os.path.exists(PROCESSED_FILE):
+            with open(PROCESSED_FILE, 'r') as f:
+                processed_comments = set(json.load(f))
+    except Exception as e:
+        print(f"⚠️ Erreur chargement processed: {e}")
+
+def save_processed():
+    """Sauvegarde les commentaires traités."""
+    try:
+        with open(PROCESSED_FILE, 'w') as f:
+            json.dump(list(processed_comments), f)
+    except Exception as e:
+        print(f"⚠️ Erreur sauvegarde processed: {e}")
 
 def is_comment_processed(comment_id):
-    """Vérifie si un commentaire a déjà été traité."""
     return comment_id in processed_comments
 
 def mark_comment_processed(comment_id):
-    """Marque un commentaire comme traité."""
     processed_comments.add(comment_id)
-    # Nettoyer la mémoire (garder les 100 derniers)
-    if len(processed_comments) > 100:
+    # Nettoyer la mémoire (garder les 500 derniers)
+    if len(processed_comments) > 500:
         to_remove = list(processed_comments)[0]
         processed_comments.remove(to_remove)
+    save_processed()
 
 # ============================================================
-# 3. PROMPT SYSTÈME
+# 4. PROMPT SYSTÈME
 # ============================================================
 
-SYSTEM_PROMPT = """Tu es Rick, le fondateur et l'âme de Trader123.
+BASE_SYSTEM_PROMPT = """Tu es Rick, le fondateur et l'âme de Trader123.
 
 ========================================
 TON IDENTITÉ :
@@ -97,20 +198,33 @@ COMMENT TU FINIS :
 - "Hésite pas, je réponds toujours +22960315458"
 """
 
+def get_system_prompt(user_id):
+    """Génère le prompt système avec le contexte de la conversation."""
+    context = build_context(user_id)
+    
+    if context:
+        return BASE_SYSTEM_PROMPT + "\n\n========================================\nCONTEXTE DE LA CONVERSATION :\n" + context + "\n========================================\n\nUtilise ce contexte pour personnaliser ta réponse. Si l'utilisateur a déjà posé des questions, fais référence à ses précédents échanges pour montrer que tu te souviens de lui."
+    
+    return BASE_SYSTEM_PROMPT
+
 # ============================================================
-# 4. FONCTIONS GROQ ET FACEBOOK
+# 5. FONCTIONS GROQ ET FACEBOOK
 # ============================================================
 
-def get_groq_response(comment, author=None):
-    """Génère une réponse humaine avec Groq."""
+def get_groq_response(comment, author, user_id=None):
+    """Génère une réponse humaine avec Groq et contexte."""
     if not GROQ_API_KEY:
         return f"Salut ! Je suis dispo sur WhatsApp pour en parler {WHATSAPP}"
 
+    # Récupérer la mémoire de l'utilisateur
+    user_data = get_user_memory(user_id, author) if user_id else None
+    
     client = Groq(api_key=GROQ_API_KEY)
+    system_prompt = get_system_prompt(user_id) if user_id else BASE_SYSTEM_PROMPT
 
     messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": f"Commentaire de {author or 'un trader'}: {comment}"}
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": f"Commentaire de {author}: {comment}"}
     ]
 
     try:
@@ -123,13 +237,17 @@ def get_groq_response(comment, author=None):
         reply = response.choices[0].message.content
         if WHATSAPP not in reply:
             reply += f" 📱 WhatsApp : {WHATSAPP}"
+        
+        # Mettre à jour la mémoire
+        if user_id:
+            update_user_memory(user_id, comment, reply)
+        
         return reply
     except Exception as e:
         print(f"❌ Erreur Groq: {e}")
         return f"Salut, envoie-moi un message sur WhatsApp {WHATSAPP} 👍"
 
 def check_token_valid():
-    """Vérifie si le token Facebook est valide."""
     try:
         url = f"https://graph.facebook.com/v24.0/me?access_token={PAGE_TOKEN}"
         response = requests.get(url, timeout=10)
@@ -138,7 +256,6 @@ def check_token_valid():
         return False
 
 def get_comments(limit=5):
-    """Récupère les derniers commentaires."""
     if not PAGE_TOKEN:
         return []
 
@@ -160,11 +277,9 @@ def get_comments(limit=5):
                     author_id = comment.get('from', {}).get('id', '')
                     comment_id = comment.get('id', '')
 
-                    # Ignorer la page elle-même
                     if author_id == PAGE_ID:
                         continue
 
-                    # Ignorer les commentaires déjà traités
                     if is_comment_processed(comment_id):
                         continue
 
@@ -180,7 +295,6 @@ def get_comments(limit=5):
         return []
 
 def reply_to_comment(comment_id, reply):
-    """Publie une réponse."""
     if not PAGE_TOKEN:
         return False
 
@@ -197,7 +311,6 @@ def reply_to_comment(comment_id, reply):
         return False
 
 def process_comments():
-    """Traite les commentaires avec style humain."""
     print(f"[{datetime.now().strftime('%H:%M:%S')}] 👤 Assistant activé")
 
     if not check_token_valid():
@@ -221,8 +334,8 @@ def process_comments():
         # Délai aléatoire (humain)
         time.sleep(random.uniform(2, 5))
 
-        # Réponse
-        reply = get_groq_response(c['message'], c['author'])
+        # Réponse avec contexte
+        reply = get_groq_response(c['message'], c['author'], c['author_id'])
         success = reply_to_comment(c['id'], reply)
 
         if success:
@@ -236,7 +349,6 @@ def process_comments():
     print("✅ Terminé")
 
 def background_worker():
-    """Tourne en arrière-plan et vérifie les commentaires toutes les 5 minutes."""
     while True:
         try:
             process_comments()
@@ -244,12 +356,16 @@ def background_worker():
             print(f"❌ Erreur: {e}")
         time.sleep(300)  # 5 minutes
 
+# Charger la mémoire au démarrage
+load_memory()
+load_processed()
+
 # Démarrer le thread
 thread = threading.Thread(target=background_worker, daemon=True)
 thread.start()
 
 # ============================================================
-# 5. ROUTES FLASK
+# 6. ROUTES FLASK
 # ============================================================
 
 @app.route('/')
@@ -259,8 +375,9 @@ def home():
         "message": "🤖 Assistant Groq - Trader123",
         "time": datetime.now().isoformat(),
         "check_interval": "5 minutes",
-        "version": "2.2",
-        "whatsapp": WHATSAPP
+        "version": "3.0 - Mémoire + Anti-doublon",
+        "whatsapp": WHATSAPP,
+        "users_in_memory": len(memory)
     })
 
 @app.route('/ping')
@@ -273,12 +390,27 @@ def health():
 
 @app.route('/wakeup')
 def wakeup():
-    """Force une vérification immédiate."""
     try:
         process_comments()
         return jsonify({"status": "success", "message": "Vérification effectuée"})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)})
+
+@app.route('/memory')
+def view_memory():
+    """Voir la mémoire des conversations (debug)."""
+    return jsonify({
+        "total_users": len(memory),
+        "memory": memory
+    })
+
+@app.route('/clear_memory')
+def clear_memory():
+    """Effacer la mémoire (debug)."""
+    global memory
+    memory = {}
+    save_memory()
+    return jsonify({"status": "success", "message": "Mémoire effacée"})
 
 @app.route('/comment', methods=['POST'])
 def comment():
@@ -286,20 +418,22 @@ def comment():
         data = request.json
         comment = data.get('comment', '')
         author = data.get('author', 'Visiteur')
+        user_id = data.get('user_id', None)
         if not comment:
             return jsonify({"error": "Commentaire vide"}), 400
-        reply = get_groq_response(comment, author)
+        reply = get_groq_response(comment, author, user_id)
         return jsonify({"reply": reply})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 # ============================================================
-# 6. DÉMARRAGE
+# 7. DÉMARRAGE
 # ============================================================
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    print(f"🚀 Assistant Groq démarré sur le port {port}")
+    print(f"🚀 Assistant Groq v3.0 démarré sur le port {port}")
     print(f"🔄 Vérification des commentaires toutes les 5 minutes")
     print(f"📱 WhatsApp: {WHATSAPP}")
+    print(f"🧠 Mémoire chargée: {len(memory)} utilisateurs")
     app.run(host='0.0.0.0', port=port)
