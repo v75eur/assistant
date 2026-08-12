@@ -1,16 +1,15 @@
 #!/usr/bin/env python3
 # ============================================================
 # ASSISTANT GROQ - SERVEUR FLASK POUR RENDER
-# Version : 3.1 - Réponse rapide (sans délai artificiel)
+# Version : 3.1 - Réponse rapide + Mémoire + Anti-doublon
 # ============================================================
 
 import os
-import sys
 import time
 import random
 import threading
 import json
-from datetime import datetime, timedelta
+from datetime import datetime
 from flask import Flask, jsonify, request
 from groq import Groq
 import requests
@@ -26,6 +25,11 @@ PAGE_ID = os.getenv("FB_PAGE_ID", "620580204479095")
 PAGE_TOKEN = os.getenv("FB_PAGE_TOKEN", "")
 WHATSAPP = os.getenv("WHATSAPP_NUMBER", "+22960315458")
 
+if not GROQ_API_KEY:
+    print("⚠️ GROQ_API_KEY_1 non définie")
+if not PAGE_TOKEN:
+    print("⚠️ FB_PAGE_TOKEN non défini")
+
 # ============================================================
 # 2. MÉMOIRE DES CONVERSATIONS
 # ============================================================
@@ -40,6 +44,7 @@ def load_memory():
         if os.path.exists(MEMORY_FILE):
             with open(MEMORY_FILE, 'r') as f:
                 memory = json.load(f)
+                print(f"🧠 Mémoire chargée: {len(memory)} utilisateurs")
     except Exception as e:
         print(f"⚠️ Erreur chargement mémoire: {e}")
 
@@ -111,6 +116,7 @@ def load_processed():
         if os.path.exists(PROCESSED_FILE):
             with open(PROCESSED_FILE, 'r') as f:
                 processed_comments = set(json.load(f))
+                print(f"📝 Commentaires traités chargés: {len(processed_comments)}")
     except Exception as e:
         print(f"⚠️ Erreur chargement processed: {e}")
 
@@ -316,7 +322,7 @@ def process_comments():
 
         print(f"💬 {c['author']}: {c['message'][:50]}...")
 
-        # PAS DE DÉLAI ! Réponse instantanée
+        # RÉPONSE INSTANTANÉE (sans délai)
         reply = get_groq_response(c['message'], c['author'], c['author_id'])
         success = reply_to_comment(c['id'], reply)
 
@@ -325,8 +331,6 @@ def process_comments():
             mark_comment_processed(c['id'])
         else:
             print(f"❌ Échec réponse")
-
-        # Pas de pause entre les commentaires non plus
 
     print("✅ Terminé")
 
@@ -337,14 +341,6 @@ def background_worker():
         except Exception as e:
             print(f"❌ Erreur: {e}")
         time.sleep(300)  # 5 minutes
-
-# Charger la mémoire au démarrage
-load_memory()
-load_processed()
-
-# Démarrer le thread
-thread = threading.Thread(target=background_worker, daemon=True)
-thread.start()
 
 # ============================================================
 # 6. ROUTES FLASK
