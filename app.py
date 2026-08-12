@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 # ============================================================
 # ASSISTANT GROQ - SERVEUR FLASK POUR RENDER
-# Version : 3.0 - Mémoire + Anti-doublon
+# Version : 3.1 - Réponse rapide (sans délai artificiel)
 # ============================================================
 
 import os
+import sys
 import time
 import random
 import threading
@@ -29,13 +30,11 @@ WHATSAPP = os.getenv("WHATSAPP_NUMBER", "+22960315458")
 # 2. MÉMOIRE DES CONVERSATIONS
 # ============================================================
 
-# Structure : { "user_id": { "name": "Rick", "last_comment": "...", "history": [...], "last_seen": "2026-08-12T19:00:00" } }
 memory = {}
 MEMORY_FILE = "/tmp/assistant_memory.json"
-MAX_HISTORY = 10  # Garder les 10 derniers échanges
+MAX_HISTORY = 10
 
 def load_memory():
-    """Charge la mémoire depuis le fichier."""
     global memory
     try:
         if os.path.exists(MEMORY_FILE):
@@ -45,7 +44,6 @@ def load_memory():
         print(f"⚠️ Erreur chargement mémoire: {e}")
 
 def save_memory():
-    """Sauvegarde la mémoire dans le fichier."""
     try:
         with open(MEMORY_FILE, 'w') as f:
             json.dump(memory, f)
@@ -53,7 +51,6 @@ def save_memory():
         print(f"⚠️ Erreur sauvegarde mémoire: {e}")
 
 def get_user_memory(user_id, user_name=None):
-    """Récupère la mémoire d'un utilisateur."""
     if user_id not in memory:
         memory[user_id] = {
             "name": user_name or "Visiteur",
@@ -63,7 +60,6 @@ def get_user_memory(user_id, user_name=None):
         }
         save_memory()
     
-    # Mettre à jour le nom si disponible
     if user_name and memory[user_id]["name"] == "Visiteur":
         memory[user_id]["name"] = user_name
         save_memory()
@@ -71,51 +67,45 @@ def get_user_memory(user_id, user_name=None):
     return memory[user_id]
 
 def update_user_memory(user_id, comment, reply):
-    """Met à jour la mémoire d'un utilisateur."""
     if user_id not in memory:
         memory[user_id] = {"name": "Visiteur", "history": [], "last_seen": "", "last_comment": ""}
     
     memory[user_id]["last_seen"] = datetime.now().isoformat()
     memory[user_id]["last_comment"] = comment
     
-    # Ajouter à l'historique
     memory[user_id]["history"].append({
         "time": datetime.now().isoformat(),
         "user": comment,
         "assistant": reply
     })
     
-    # Garder seulement les 10 derniers
     if len(memory[user_id]["history"]) > MAX_HISTORY:
         memory[user_id]["history"] = memory[user_id]["history"][-MAX_HISTORY:]
     
     save_memory()
 
 def build_context(user_id):
-    """Construit le contexte de la conversation pour l'IA."""
     user_data = get_user_memory(user_id)
     history = user_data.get("history", [])
     
     if not history:
         return None
     
-    # Construire un résumé des derniers échanges
     context = "Historique de la conversation avec cet utilisateur :\n"
-    for entry in history[-5:]:  # Les 5 derniers échanges
+    for entry in history[-5:]:
         context += f"- Utilisateur : {entry['user']}\n"
         context += f"- Réponse : {entry['assistant']}\n"
     
     return context
 
 # ============================================================
-# 3. SUIVI DES COMMENTAIRES (ANTI-DOUBLON)
+# 3. ANTI-DOUBLON
 # ============================================================
 
 processed_comments = set()
 PROCESSED_FILE = "/tmp/processed_comments.json"
 
 def load_processed():
-    """Charge les commentaires traités."""
     global processed_comments
     try:
         if os.path.exists(PROCESSED_FILE):
@@ -125,7 +115,6 @@ def load_processed():
         print(f"⚠️ Erreur chargement processed: {e}")
 
 def save_processed():
-    """Sauvegarde les commentaires traités."""
     try:
         with open(PROCESSED_FILE, 'w') as f:
             json.dump(list(processed_comments), f)
@@ -137,7 +126,6 @@ def is_comment_processed(comment_id):
 
 def mark_comment_processed(comment_id):
     processed_comments.add(comment_id)
-    # Nettoyer la mémoire (garder les 500 derniers)
     if len(processed_comments) > 500:
         to_remove = list(processed_comments)[0]
         processed_comments.remove(to_remove)
@@ -199,7 +187,6 @@ COMMENT TU FINIS :
 """
 
 def get_system_prompt(user_id):
-    """Génère le prompt système avec le contexte de la conversation."""
     context = build_context(user_id)
     
     if context:
@@ -216,7 +203,6 @@ def get_groq_response(comment, author, user_id=None):
     if not GROQ_API_KEY:
         return f"Salut ! Je suis dispo sur WhatsApp pour en parler {WHATSAPP}"
 
-    # Récupérer la mémoire de l'utilisateur
     user_data = get_user_memory(user_id, author) if user_id else None
     
     client = Groq(api_key=GROQ_API_KEY)
@@ -238,7 +224,6 @@ def get_groq_response(comment, author, user_id=None):
         if WHATSAPP not in reply:
             reply += f" 📱 WhatsApp : {WHATSAPP}"
         
-        # Mettre à jour la mémoire
         if user_id:
             update_user_memory(user_id, comment, reply)
         
@@ -331,10 +316,7 @@ def process_comments():
 
         print(f"💬 {c['author']}: {c['message'][:50]}...")
 
-        # Délai aléatoire (humain)
-        time.sleep(random.uniform(2, 5))
-
-        # Réponse avec contexte
+        # PAS DE DÉLAI ! Réponse instantanée
         reply = get_groq_response(c['message'], c['author'], c['author_id'])
         success = reply_to_comment(c['id'], reply)
 
@@ -344,7 +326,7 @@ def process_comments():
         else:
             print(f"❌ Échec réponse")
 
-        time.sleep(random.uniform(1, 3))
+        # Pas de pause entre les commentaires non plus
 
     print("✅ Terminé")
 
@@ -375,7 +357,7 @@ def home():
         "message": "🤖 Assistant Groq - Trader123",
         "time": datetime.now().isoformat(),
         "check_interval": "5 minutes",
-        "version": "3.0 - Mémoire + Anti-doublon",
+        "version": "3.1 - Réponse rapide",
         "whatsapp": WHATSAPP,
         "users_in_memory": len(memory)
     })
@@ -398,7 +380,6 @@ def wakeup():
 
 @app.route('/memory')
 def view_memory():
-    """Voir la mémoire des conversations (debug)."""
     return jsonify({
         "total_users": len(memory),
         "memory": memory
@@ -406,7 +387,6 @@ def view_memory():
 
 @app.route('/clear_memory')
 def clear_memory():
-    """Effacer la mémoire (debug)."""
     global memory
     memory = {}
     save_memory()
@@ -432,7 +412,7 @@ def comment():
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    print(f"🚀 Assistant Groq v3.0 démarré sur le port {port}")
+    print(f"🚀 Assistant Groq v3.1 démarré sur le port {port}")
     print(f"🔄 Vérification des commentaires toutes les 5 minutes")
     print(f"📱 WhatsApp: {WHATSAPP}")
     print(f"🧠 Mémoire chargée: {len(memory)} utilisateurs")
