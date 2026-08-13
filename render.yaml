@@ -1,12 +1,11 @@
 services:
   - type: web
     name: groq-assistant
-    runtime: python
+    runtime: docker
     repo: https://github.com/v75eur/assistant
     plan: free
     branch: main
-    buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn app:app
+    dockerfilePath: ./Dockerfile
     envVars:
       - key: GROQ_API_KEY_1
         sync: false
