@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # ============================================================
-# ASSISTANT GROQ - VERSION 4.2
-# Mode Auto (analyses à 00) + Mode Cours (à 30) + Mode Libre
+# ASSISTANT GROQ - VERSION 4.3
+# Auto (00) + FAQ + Stats + Graphiques (30)
 # ============================================================
 
 import os
@@ -12,6 +12,11 @@ from datetime import datetime
 from flask import Flask, jsonify, request
 from groq import Groq
 import requests
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+import io
+import base64
 
 app = Flask(__name__)
 
@@ -28,74 +33,165 @@ print(f"📱 WhatsApp: {WHATSAPP}")
 print(f"📄 Page ID: {PAGE_ID}")
 
 # ============================================================
-# 2. SUIVI
+# 2. BASE DE CONNAISSANCES (FAQ)
 # ============================================================
 
-processed = set()
-PROCESSED_FILE = "/tmp/processed_comments.json"
+FAQ = {
+    "trading": "Le trading consiste à acheter et vendre des actifs financiers pour réaliser un profit. J'enseigne les bases sur WhatsApp ! 📱",
+    "formation": "Je propose des formations personnalisées en trading et développement. Contacte-moi sur WhatsApp pour en savoir plus !",
+    "bot": "Oui, je suis un assistant IA créé pour aider les traders. Je suis géré par Rick, un trader pro depuis 8 ans.",
+    "xauusd": "XAUUSD est la paire qui représente l'or face au dollar. C'est mon actif préféré ! 📈",
+    "v75": "Le V75 (Volatility 75) est un indice de volatilité très populaire sur Deriv. Il permet de trader la volatilité du marché.",
+    "forex": "Le Forex (Foreign Exchange) est le marché des devises. Les principales paires sont EURUSD, GBPUSD, USDJPY.",
+    "analyse": "J'utilise l'analyse technique : supports, résistances, canaux, tendances. Je partage mes analyses sur la page !",
+    "signal": "Je partage des signaux de trading en privé sur WhatsApp. Contacte-moi pour en discuter !",
+    "formation trading": "Mes formations couvrent : bases du trading, analyse technique, gestion des risques, psychologie, stratégies.",
+    "developpement": "Je développe des bots, des assistants IA et des sites web. Je peux t'aider à automatiser tes tâches !",
+    "gratuit": "Oui, mes analyses sont gratuites sur cette page. Pour des conseils personnalisés, contacte-moi sur WhatsApp.",
+    "instagram": "Je suis aussi présent sur Instagram ! Suis-moi pour plus de contenu.",
+    "youtube": "Je prépare des vidéos YouTube sur le trading et le développement. Abonne-toi !",
+    "telegram": "Je ne suis pas encore sur Telegram, mais c'est prévu ! En attendant, WhatsApp est le meilleur moyen de me contacter.",
+    "prix": "Les prix sont actualisés en temps réel sur mes analyses. Suis les posts pour rester informé !",
+    "tendance": "Les tendances sont identifiées avec des indicateurs techniques. Je partage mes analyses régulièrement.",
+    "risque": "La gestion des risques est essentielle en trading. Ne risque jamais plus que ce que tu peux perdre !",
+    "psychologie": "La psychologie du trading est cruciale. Il faut garder son sang-froid et respecter son plan.",
+    "broker": "Je recommande des brokers fiables. Contacte-moi sur WhatsApp pour en discuter.",
+    "argent": "Le trading peut être rentable, mais ce n'est pas un gain facile. Il faut de la formation et de la discipline.",
+}
 
-def load_processed():
-    global processed
+def answer_faq(question):
+    """Répond à une question basée sur la FAQ."""
+    question_lower = question.lower()
+    for key, answer in FAQ.items():
+        if key in question_lower:
+            return answer
+    return None
+
+# ============================================================
+# 3. STATISTIQUES ET RAPPORTS
+# ============================================================
+
+def get_page_stats():
+    """Récupère les statistiques de la page."""
+    if not PAGE_TOKEN:
+        return None
+    
     try:
-        if os.path.exists(PROCESSED_FILE):
-            with open(PROCESSED_FILE, 'r') as f:
-                processed = set(json.load(f))
-    except:
-        pass
+        url = f"https://graph.facebook.com/v24.0/{PAGE_ID}/insights"
+        params = {
+            'metric': 'page_fans,page_impressions,page_engaged_users,page_posts_impressions',
+            'period': 'day',
+            'access_token': PAGE_TOKEN
+        }
+        r = requests.get(url, params=params, timeout=30)
+        data = r.json()
+        
+        stats = {}
+        for item in data.get('data', []):
+            name = item.get('name')
+            values = item.get('values', [])
+            if values:
+                stats[name] = values[0].get('value', 0)
+        
+        return stats
+    except Exception as e:
+        print(f"❌ Erreur stats: {e}")
+        return None
 
-def save_processed():
-    try:
-        with open(PROCESSED_FILE, 'w') as f:
-            json.dump(list(processed), f)
-    except:
-        pass
+def generate_stats_report():
+    """Génère un rapport de statistiques."""
+    stats = get_page_stats()
+    if not stats:
+        return "📊 Statistiques non disponibles pour le moment."
+    
+    report = f"""📊 RAPPORT DE LA PAGE
+📅 {datetime.now().strftime('%d/%m/%Y %H:%M')}
 
-load_processed()
+👍 J'aime: {stats.get('page_fans', 0)}
+👀 Impressions: {stats.get('page_impressions', 0)}
+💬 Engagement: {stats.get('page_engaged_users', 0)}
+📝 Impressions des posts: {stats.get('page_posts_impressions', 0)}
 
-# ============================================================
-# 3. PROMPTS
-# ============================================================
-
-PROMPT_COMMENTAIRE = """Tu es Rick, le fondateur de Trader123.
-Tu es un trader pro depuis 8 ans. Parle comme un humain.
-Termine toujours par le WhatsApp : +22960315458
-Sois naturel, joyeux, accessible."""
-
-PROMPT_COURS = """Tu es Rick, le fondateur de Trader123.
-Tu vas publier un cours ou un conseil sur le trading.
-
-Le contenu doit être :
-- Éducatif et clair
-- Structuré avec des points importants
-- Adapté aux débutants
-- Avec des conseils pratiques
-- Inspirant et motivant
-
-Sujets possibles (varie aléatoirement) :
-- Les bases du trading
-- Analyse technique (supports, résistances, tendances)
-- Gestion des risques et money management
-- Psychologie du trading
-- Stratégies gagnantes
-- Le trading de l'or (XAUUSD)
-- Le trading des paires Forex
-- Le trading de la volatilité (V75)
-- Comment utiliser les bots de trading
-- Développement d'assistants IA
-- Conseils pour débuter en trading
-- Les erreurs à éviter en trading
-- La discipline en trading
-- Comment lire les graphiques
-- Les indicateurs techniques
-- Le trading à long terme vs court terme
-- Comment choisir un broker
-- La diversification en trading
-- Les news et leur impact sur les marchés
-- Le trading automatique
+📱 WhatsApp: {WHATSAPP}
+🤖 Rick Bot
 """
+    return report
 
 # ============================================================
-# 4. FONCTIONS FACEBOOK
+# 4. GÉNÉRATION DE GRAPHIQUES
+# ============================================================
+
+def generate_chart_image():
+    """Génère un graphique d'évolution."""
+    try:
+        # Données simulées
+        days = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim']
+        values = [random.randint(100, 200) for _ in range(7)]
+        
+        fig, ax = plt.subplots(figsize=(10, 6))
+        ax.plot(days, values, marker='o', color='#f59e0b', linewidth=2)
+        ax.fill_between(days, values, color='#f59e0b', alpha=0.2)
+        ax.set_title("📈 Évolution de l'engagement", color='white', fontsize=14)
+        ax.set_xlabel("Jour", color='white')
+        ax.set_ylabel("Engagement", color='white')
+        ax.tick_params(colors='white')
+        ax.grid(True, alpha=0.2, color='gray')
+        ax.set_facecolor('#0d1117')
+        fig.patch.set_facecolor('#0a0a0a')
+        
+        # Sauvegarder en base64
+        buf = io.BytesIO()
+        plt.savefig(buf, format='png', dpi=100, facecolor='#0a0a0a')
+        buf.seek(0)
+        plt.close()
+        
+        return base64.b64encode(buf.getvalue()).decode('utf-8')
+    except Exception as e:
+        print(f"❌ Erreur graphique: {e}")
+        return None
+
+def publish_chart():
+    """Publie un graphique sur la page."""
+    try:
+        img_base64 = generate_chart_image()
+        if not img_base64:
+            return None
+        
+        # Construire le message
+        msg = f"""📊 VISUALISATION DE L'ENGAGEMENT
+📅 {datetime.now().strftime('%d/%m/%Y %H:%M')}
+
+📈 Évolution de l'engagement cette semaine
+
+🔹 Données simulées pour illustration
+🔹 L'engagement augmente avec la qualité du contenu
+
+📱 WhatsApp: {WHATSAPP}
+🤖 Rick Bot
+"""
+        
+        # Publier avec image
+        url = f"https://graph.facebook.com/v24.0/{PAGE_ID}/photos"
+        files = {'source': ('chart.png', base64.b64decode(img_base64), 'image/png')}
+        data = {
+            'caption': msg,
+            'access_token': PAGE_TOKEN,
+            'published': True
+        }
+        r = requests.post(url, files=files, data=data, timeout=30)
+        
+        if r.status_code == 200:
+            print("✅ Graphique publié !")
+            return r.json()
+        else:
+            print(f"❌ Erreur: {r.text}")
+            return None
+    except Exception as e:
+        print(f"❌ Erreur: {e}")
+        return None
+
+# ============================================================
+# 5. FONCTIONS FACEBOOK
 # ============================================================
 
 def check_token():
@@ -109,7 +205,6 @@ def check_token():
         return False
 
 def publish_post(message):
-    """Publie un post sur la page."""
     if not PAGE_TOKEN:
         return False
     try:
@@ -127,7 +222,6 @@ def publish_post(message):
         return None
 
 def get_comments():
-    """Récupère les commentaires."""
     if not PAGE_TOKEN:
         return []
     
@@ -172,15 +266,54 @@ def reply_to_comment(comment_id, message):
         return False
 
 # ============================================================
-# 5. FONCTION GROQ
+# 6. SUIVI
+# ============================================================
+
+processed = set()
+PROCESSED_FILE = "/tmp/processed_comments.json"
+
+def load_processed():
+    global processed
+    try:
+        if os.path.exists(PROCESSED_FILE):
+            with open(PROCESSED_FILE, 'r') as f:
+                processed = set(json.load(f))
+    except:
+        pass
+
+def save_processed():
+    try:
+        with open(PROCESSED_FILE, 'w') as f:
+            json.dump(list(processed), f)
+    except:
+        pass
+
+load_processed()
+
+# ============================================================
+# 7. FONCTION GROQ
 # ============================================================
 
 def groq_response(message, author, prompt_type="commentaire"):
-    """Génère une réponse avec Groq selon le type."""
     if not GROQ_API_KEY:
         return f"Salut ! Contacte-moi sur WhatsApp {WHATSAPP}"
     
-    prompt = PROMPT_COMMENTAIRE if prompt_type == "commentaire" else PROMPT_COURS
+    prompts = {
+        "commentaire": """Tu es Rick, le fondateur de Trader123.
+Tu es un trader pro depuis 8 ans. Parle comme un humain.
+Termine toujours par le WhatsApp : +22960315458
+Sois naturel, joyeux, accessible.""",
+        
+        "faq": """Tu es Rick. Réponds de manière claire et utile.
+Termine toujours par le WhatsApp : +22960315458
+Sois précis et concis.""",
+        
+        "cours": """Tu es Rick. Crée un cours structuré sur le sujet.
+Termine toujours par le WhatsApp : +22960315458
+Sois éducatif et inspirant."""
+    }
+    
+    prompt = prompts.get(prompt_type, prompts["commentaire"])
     
     try:
         client = Groq(api_key=GROQ_API_KEY)
@@ -191,7 +324,7 @@ def groq_response(message, author, prompt_type="commentaire"):
         r = client.chat.completions.create(
             model="llama-3.3-70b-versatile",
             messages=messages,
-            max_tokens=400 if prompt_type == "cours" else 150,
+            max_tokens=200,
             temperature=0.9,
         )
         reply = r.choices[0].message.content
@@ -203,80 +336,76 @@ def groq_response(message, author, prompt_type="commentaire"):
         return f"Salut, envoie-moi un message sur WhatsApp {WHATSAPP} 👍"
 
 # ============================================================
-# 6. GÉNÉRATION DE COURS
+# 8. PUBLICATION À 30 MINUTES
 # ============================================================
 
-COURS_TOPICS = [
-    "Les bases du trading pour débutants",
-    "Analyse technique : supports et résistances",
-    "La gestion des risques en trading",
-    "Psychologie du trading : garder son sang-froid",
-    "Stratégies de trading gagnantes",
-    "Comment trader l'or (XAUUSD)",
-    "Le trading des paires Forex",
-    "Le trading de la volatilité (V75)",
-    "Comment utiliser les bots de trading",
-    "Développer des assistants IA pour le trading",
-    "Les erreurs à éviter en trading",
-    "La discipline, clé du succès en trading",
-    "Comment lire les graphiques en trading",
-    "Les indicateurs techniques essentiels",
-    "Trading à long terme vs court terme",
-    "Comment choisir un broker fiable",
-    "La diversification en trading",
-    "Les news et leur impact sur les marchés",
-    "Le trading automatique : avantages et risques",
-    "Comment devenir un trader rentable",
-    "Les 10 commandements du trader",
-    "Comment analyser une tendance",
-    "Le money management pour les traders",
-    "Comment trader les annonces économiques"
-]
-
-def generate_course():
-    """Génère un cours aléatoire."""
-    topic = random.choice(COURS_TOPICS)
-    course = groq_response(f"Crée un cours sur : {topic}", "Formation", "cours")
-    return topic, course
-
-def publish_course(custom_topic=None):
-    """Publie un cours de formation."""
+def publish_at_30():
+    """Publie alternativement : FAQ, Stats, Graphique."""
     print("=" * 50)
-    print(f"[{datetime.now().strftime('%H:%M:%S')}] 🎓 PUBLICATION D'UN COURS")
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] 🕐 PUBLICATION À 30 MINUTES")
     
     if not check_token():
         print("❌ Token invalide")
         return {"status": "error"}
     
-    if custom_topic:
-        topic = custom_topic
-        course = groq_response(f"Crée un cours sur : {topic}", "Formation", "cours")
+    # Choisir aléatoirement le type de publication
+    types = ["faq", "stats", "chart"]
+    chosen = random.choice(types)
+    
+    if chosen == "faq":
+        return publish_faq()
+    elif chosen == "stats":
+        return publish_stats()
     else:
-        topic, course = generate_course()
+        return publish_chart_post()
+
+def publish_faq():
+    """Publie une FAQ aléatoire."""
+    key = random.choice(list(FAQ.keys()))
+    answer = FAQ[key]
     
-    # Construire le message
-    msg = f"📚 FORMATION TRADING\n"
-    msg += f"📖 Sujet: {topic}\n"
-    msg += "=" * 40 + "\n\n"
-    msg += course
-    msg += "\n\n" + "=" * 40 + "\n"
-    msg += f"🤖 Rick Bot - Formation\n"
-    msg += f"📱 WhatsApp : {WHATSAPP}"
-    
-    # Publier
+    msg = f"""❓ QUESTION FRÉQUENTE
+📖 Sujet: {key.upper()}
+
+💡 Réponse:
+{answer}
+
+📱 WhatsApp: {WHATSAPP}
+🤖 Rick Bot
+"""
     result = publish_post(msg)
-    if result:
-        print(f"✅ Cours publié !")
-        return {"status": "success", "message": "Cours publié", "topic": topic}
-    else:
-        return {"status": "error", "message": "Échec de la publication"}
+    return {"status": "success" if result else "error", "type": "faq", "topic": key}
+
+def publish_stats():
+    """Publie les statistiques de la page."""
+    stats = get_page_stats()
+    if not stats:
+        return {"status": "error", "message": "Stats non disponibles"}
+    
+    msg = f"""📊 RAPPORT DE LA PAGE
+📅 {datetime.now().strftime('%d/%m/%Y %H:%M')}
+
+👍 J'aime: {stats.get('page_fans', 0)}
+👀 Impressions: {stats.get('page_impressions', 0)}
+💬 Engagement: {stats.get('page_engaged_users', 0)}
+📝 Impressions des posts: {stats.get('page_posts_impressions', 0)}
+
+📱 WhatsApp: {WHATSAPP}
+🤖 Rick Bot
+"""
+    result = publish_post(msg)
+    return {"status": "success" if result else "error", "type": "stats"}
+
+def publish_chart_post():
+    """Publie un graphique."""
+    result = publish_chart()
+    return {"status": "success" if result else "error", "type": "chart"}
 
 # ============================================================
-# 7. TRAITEMENT DES COMMENTAIRES
+# 9. TRAITEMENT DES COMMENTAIRES
 # ============================================================
 
 def process_comments():
-    """Traite les commentaires automatiquement."""
     print("=" * 50)
     print(f"[{datetime.now().strftime('%H:%M:%S')}] 🔄 Traitement des commentaires")
     
@@ -301,7 +430,7 @@ def process_comments():
     return {"status": "success", "message": "Terminé", "count": len(comments)}
 
 # ============================================================
-# 8. ROUTES
+# 10. ROUTES
 # ============================================================
 
 @app.route('/')
@@ -310,8 +439,8 @@ def home():
         "status": "active",
         "whatsapp": WHATSAPP,
         "page_id": PAGE_ID,
-        "version": "4.2 - Auto + Cours (30) + Libre",
-        "modes": ["auto (commentaires)", "cours (30)", "libre (à la demande)"]
+        "version": "4.3 - Auto + FAQ + Stats + Graphiques (30)",
+        "modes": ["auto (commentaires)", "faq (30)", "stats (30)", "graphique (30)"]
     })
 
 @app.route('/ping')
@@ -324,26 +453,40 @@ def wakeup():
     result = process_comments()
     return jsonify(result)
 
-@app.route('/course')
-def course():
-    """Mode Libre : Publie un cours aléatoire."""
-    result = publish_course()
+@app.route('/publish')
+def publish():
+    """Publie aléatoirement à 30."""
+    result = publish_at_30()
     return jsonify(result)
 
-@app.route('/course/<topic>')
-def course_topic(topic):
-    """Mode Libre : Publie un cours sur un sujet spécifique."""
-    result = publish_course(topic)
+@app.route('/publish/faq')
+def publish_faq_route():
+    """Publie une FAQ."""
+    result = publish_faq()
+    return jsonify(result)
+
+@app.route('/publish/stats')
+def publish_stats_route():
+    """Publie les statistiques."""
+    result = publish_stats()
+    return jsonify(result)
+
+@app.route('/publish/chart')
+def publish_chart_route():
+    """Publie un graphique."""
+    result = publish_chart_post()
     return jsonify(result)
 
 @app.route('/test')
 def test():
     comments = get_comments()
+    stats = get_page_stats()
     return jsonify({
         "token_valid": check_token(),
         "page_id": PAGE_ID,
         "comments_count": len(comments),
-        "version": "4.2"
+        "stats": stats,
+        "version": "4.3"
     })
 
 @app.route('/reset')
@@ -354,13 +497,16 @@ def reset():
     return jsonify({"status": "reset"})
 
 # ============================================================
-# 9. DÉMARRAGE
+# 11. DÉMARRAGE
 # ============================================================
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    print(f"🚀 Assistant v4.2 - Auto + Cours (30) + Libre")
+    print(f"🚀 Assistant v4.3 - Auto + FAQ + Stats + Graphiques (30)")
     print(f"📱 WhatsApp: {WHATSAPP}")
-    print(f"📚 Mode Auto (commentaires): /wakeup")
-    print(f"📚 Mode Cours (30): /course (ou /course/sujet)")
+    print(f"📚 Auto (commentaires): /wakeup")
+    print(f"📚 FAQ (30): /publish/faq")
+    print(f"📊 Stats (30): /publish/stats")
+    print(f"📈 Graphique (30): /publish/chart")
+    print(f"🎲 Aléatoire (30): /publish")
     app.run(host='0.0.0.0', port=port)
