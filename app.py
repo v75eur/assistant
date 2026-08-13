@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # ============================================================
-# ASSISTANT GROQ - VERSION 4.3
-# Auto (00) + FAQ + Stats + Graphiques (30)
+# ASSISTANT GROQ - VERSION 5.0
+# Auto (00) + FAQ + Stats + Graphiques (30) + MESSENGER
 # ============================================================
 
 import os
@@ -37,30 +37,19 @@ print(f"📄 Page ID: {PAGE_ID}")
 # ============================================================
 
 FAQ = {
-    "trading": "Le trading consiste à acheter et vendre des actifs financiers pour réaliser un profit. J'enseigne les bases sur WhatsApp ! 📱",
-    "formation": "Je propose des formations personnalisées en trading et développement. Contacte-moi sur WhatsApp pour en savoir plus !",
-    "bot": "Oui, je suis un assistant IA créé pour aider les traders. Je suis géré par Rick, un trader pro depuis 8 ans.",
-    "xauusd": "XAUUSD est la paire qui représente l'or face au dollar. C'est mon actif préféré ! 📈",
-    "v75": "Le V75 (Volatility 75) est un indice de volatilité très populaire sur Deriv. Il permet de trader la volatilité du marché.",
-    "forex": "Le Forex (Foreign Exchange) est le marché des devises. Les principales paires sont EURUSD, GBPUSD, USDJPY.",
-    "analyse": "J'utilise l'analyse technique : supports, résistances, canaux, tendances. Je partage mes analyses sur la page !",
-    "signal": "Je partage des signaux de trading en privé sur WhatsApp. Contacte-moi pour en discuter !",
-    "formation trading": "Mes formations couvrent : bases du trading, analyse technique, gestion des risques, psychologie, stratégies.",
-    "developpement": "Je développe des bots, des assistants IA et des sites web. Je peux t'aider à automatiser tes tâches !",
-    "gratuit": "Oui, mes analyses sont gratuites sur cette page. Pour des conseils personnalisés, contacte-moi sur WhatsApp.",
-    "instagram": "Je suis aussi présent sur Instagram ! Suis-moi pour plus de contenu.",
-    "youtube": "Je prépare des vidéos YouTube sur le trading et le développement. Abonne-toi !",
-    "telegram": "Je ne suis pas encore sur Telegram, mais c'est prévu ! En attendant, WhatsApp est le meilleur moyen de me contacter.",
-    "prix": "Les prix sont actualisés en temps réel sur mes analyses. Suis les posts pour rester informé !",
-    "tendance": "Les tendances sont identifiées avec des indicateurs techniques. Je partage mes analyses régulièrement.",
-    "risque": "La gestion des risques est essentielle en trading. Ne risque jamais plus que ce que tu peux perdre !",
-    "psychologie": "La psychologie du trading est cruciale. Il faut garder son sang-froid et respecter son plan.",
-    "broker": "Je recommande des brokers fiables. Contacte-moi sur WhatsApp pour en discuter.",
-    "argent": "Le trading peut être rentable, mais ce n'est pas un gain facile. Il faut de la formation et de la discipline.",
+    "trading": "Le trading consiste à acheter et vendre des actifs financiers. J'enseigne les bases sur WhatsApp ! 📱",
+    "formation": "Je propose des formations personnalisées en trading et développement. Contacte-moi sur WhatsApp !",
+    "bot": "Oui, je suis un assistant IA créé pour aider les traders. Je suis géré par Rick, trader pro depuis 8 ans.",
+    "xauusd": "XAUUSD est la paire Or/Dollar. C'est mon actif préféré ! 📈",
+    "v75": "Le V75 (Volatility 75) est un indice de volatilité sur Deriv.",
+    "forex": "Le Forex est le marché des devises. Paires principales : EURUSD, GBPUSD, USDJPY.",
+    "analyse": "J'utilise l'analyse technique : supports, résistances, canaux, tendances.",
+    "signal": "Je partage des signaux en privé sur WhatsApp. Contacte-moi !",
+    "prix": "Les prix sont actualisés en temps réel sur mes analyses.",
+    "tendance": "Les tendances sont identifiées avec des indicateurs techniques.",
 }
 
 def answer_faq(question):
-    """Répond à une question basée sur la FAQ."""
     question_lower = question.lower()
     for key, answer in FAQ.items():
         if key in question_lower:
@@ -68,14 +57,12 @@ def answer_faq(question):
     return None
 
 # ============================================================
-# 3. STATISTIQUES ET RAPPORTS
+# 3. STATISTIQUES
 # ============================================================
 
 def get_page_stats():
-    """Récupère les statistiques de la page."""
     if not PAGE_TOKEN:
         return None
-    
     try:
         url = f"https://graph.facebook.com/v24.0/{PAGE_ID}/insights"
         params = {
@@ -85,49 +72,21 @@ def get_page_stats():
         }
         r = requests.get(url, params=params, timeout=30)
         data = r.json()
-        
         stats = {}
         for item in data.get('data', []):
             name = item.get('name')
             values = item.get('values', [])
             if values:
                 stats[name] = values[0].get('value', 0)
-        
         return stats
     except Exception as e:
         print(f"❌ Erreur stats: {e}")
         return None
 
-def generate_stats_report():
-    """Génère un rapport de statistiques."""
-    stats = get_page_stats()
-    if not stats:
-        return "📊 Statistiques non disponibles pour le moment."
-    
-    report = f"""📊 RAPPORT DE LA PAGE
-📅 {datetime.now().strftime('%d/%m/%Y %H:%M')}
-
-👍 J'aime: {stats.get('page_fans', 0)}
-👀 Impressions: {stats.get('page_impressions', 0)}
-💬 Engagement: {stats.get('page_engaged_users', 0)}
-📝 Impressions des posts: {stats.get('page_posts_impressions', 0)}
-
-📱 WhatsApp: {WHATSAPP}
-🤖 Rick Bot
-"""
-    return report
-
-# ============================================================
-# 4. GÉNÉRATION DE GRAPHIQUES
-# ============================================================
-
 def generate_chart_image():
-    """Génère un graphique d'évolution."""
     try:
-        # Données simulées
         days = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim']
         values = [random.randint(100, 200) for _ in range(7)]
-        
         fig, ax = plt.subplots(figsize=(10, 6))
         ax.plot(days, values, marker='o', color='#f59e0b', linewidth=2)
         ax.fill_between(days, values, color='#f59e0b', alpha=0.2)
@@ -138,60 +97,17 @@ def generate_chart_image():
         ax.grid(True, alpha=0.2, color='gray')
         ax.set_facecolor('#0d1117')
         fig.patch.set_facecolor('#0a0a0a')
-        
-        # Sauvegarder en base64
         buf = io.BytesIO()
         plt.savefig(buf, format='png', dpi=100, facecolor='#0a0a0a')
         buf.seek(0)
         plt.close()
-        
         return base64.b64encode(buf.getvalue()).decode('utf-8')
     except Exception as e:
         print(f"❌ Erreur graphique: {e}")
         return None
 
-def publish_chart():
-    """Publie un graphique sur la page."""
-    try:
-        img_base64 = generate_chart_image()
-        if not img_base64:
-            return None
-        
-        # Construire le message
-        msg = f"""📊 VISUALISATION DE L'ENGAGEMENT
-📅 {datetime.now().strftime('%d/%m/%Y %H:%M')}
-
-📈 Évolution de l'engagement cette semaine
-
-🔹 Données simulées pour illustration
-🔹 L'engagement augmente avec la qualité du contenu
-
-📱 WhatsApp: {WHATSAPP}
-🤖 Rick Bot
-"""
-        
-        # Publier avec image
-        url = f"https://graph.facebook.com/v24.0/{PAGE_ID}/photos"
-        files = {'source': ('chart.png', base64.b64decode(img_base64), 'image/png')}
-        data = {
-            'caption': msg,
-            'access_token': PAGE_TOKEN,
-            'published': True
-        }
-        r = requests.post(url, files=files, data=data, timeout=30)
-        
-        if r.status_code == 200:
-            print("✅ Graphique publié !")
-            return r.json()
-        else:
-            print(f"❌ Erreur: {r.text}")
-            return None
-    except Exception as e:
-        print(f"❌ Erreur: {e}")
-        return None
-
 # ============================================================
-# 5. FONCTIONS FACEBOOK
+# 4. FONCTIONS FACEBOOK
 # ============================================================
 
 def check_token():
@@ -211,20 +127,14 @@ def publish_post(message):
         url = f"https://graph.facebook.com/v24.0/{PAGE_ID}/feed"
         data = {'message': message, 'access_token': PAGE_TOKEN}
         r = requests.post(url, data=data, timeout=30)
-        if r.status_code == 200:
-            print(f"✅ Post publié !")
-            return r.json()
-        else:
-            print(f"❌ Erreur: {r.text}")
-            return None
+        return r.status_code == 200
     except Exception as e:
         print(f"❌ Erreur: {e}")
-        return None
+        return False
 
 def get_comments():
     if not PAGE_TOKEN:
         return []
-    
     all_comments = []
     try:
         url = f"https://graph.facebook.com/v24.0/{PAGE_ID}/feed"
@@ -235,14 +145,12 @@ def get_comments():
         }
         r = requests.get(url, params=params, timeout=30)
         data = r.json()
-        
         for post in data.get('data', []):
             if 'comments' in post:
                 for c in post['comments'].get('data', []):
                     author_id = c.get('from', {}).get('id', '')
                     comment_id = c.get('id', '')
-                    
-                    if author_id != PAGE_ID and comment_id not in processed:
+                    if author_id != PAGE_ID and comment_id not in processed_comments:
                         all_comments.append({
                             'id': comment_id,
                             'message': c.get('message', ''),
@@ -266,29 +174,146 @@ def reply_to_comment(comment_id, message):
         return False
 
 # ============================================================
+# 5. NOUVEAU : MESSAGES PRIVÉS (MESSENGER)
+# ============================================================
+
+def get_conversations():
+    """Récupère les conversations Messenger."""
+    if not PAGE_TOKEN:
+        return []
+    
+    conversations = []
+    try:
+        url = f"https://graph.facebook.com/v24.0/{PAGE_ID}/conversations"
+        params = {
+            'fields': 'id,participants,messages{id,message,from{name,id}}',
+            'limit': 20,
+            'access_token': PAGE_TOKEN
+        }
+        r = requests.get(url, params=params, timeout=30)
+        data = r.json()
+        
+        print(f"📄 {len(data.get('data', []))} conversations trouvées")
+        
+        for conv in data.get('data', []):
+            if 'messages' in conv:
+                for msg in conv['messages'].get('data', []):
+                    msg_id = msg.get('id', '')
+                    author = msg.get('from', {}).get('name', 'Inconnu')
+                    author_id = msg.get('from', {}).get('id', '')
+                    
+                    if author_id != PAGE_ID and msg_id not in processed_messages:
+                        conversations.append({
+                            'id': msg_id,
+                            'message': msg.get('message', ''),
+                            'author': author,
+                            'author_id': author_id,
+                            'conversation_id': conv.get('id', '')
+                        })
+        return conversations
+    except Exception as e:
+        print(f"❌ Erreur conversations: {e}")
+        return []
+
+def reply_to_message(recipient_id, message):
+    """Envoie un message privé via Messenger."""
+    if not PAGE_TOKEN:
+        return False
+    try:
+        url = f"https://graph.facebook.com/v24.0/{PAGE_ID}/messages"
+        data = {
+            'recipient': {'id': recipient_id},
+            'message': {'text': message},
+            'access_token': PAGE_TOKEN
+        }
+        r = requests.post(url, json=data, timeout=30)
+        if r.status_code == 200:
+            print(f"✅ Message envoyé à {recipient_id}")
+            return True
+        else:
+            print(f"❌ Erreur envoi message: {r.text}")
+            return False
+    except Exception as e:
+        print(f"❌ Erreur: {e}")
+        return False
+
+def process_messages():
+    """Traite les messages privés."""
+    print("=" * 50)
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] ✉️ TRAITEMENT DES MESSAGES PRIVÉS")
+    
+    if not check_token():
+        print("❌ Token invalide")
+        return {"status": "error"}
+    
+    conversations = get_conversations()
+    if not conversations:
+        print("📭 Aucun nouveau message")
+        return {"status": "success", "message": "Aucun message", "count": 0}
+    
+    print(f"📝 {len(conversations)} message(s) à traiter")
+    
+    for msg in conversations:
+        print(f"✉️ {msg['author']}: {msg['message'][:50]}...")
+        
+        # Vérifier si c'est une question FAQ
+        faq_answer = answer_faq(msg['message'])
+        if faq_answer:
+            reply = faq_answer + f"\n\n📱 WhatsApp: {WHATSAPP}"
+        else:
+            reply = groq_response(msg['message'], msg['author'], "message")
+        
+        if reply_to_message(msg['author_id'], reply):
+            processed_messages.add(msg['id'])
+            save_processed_messages()
+        time.sleep(1)
+    
+    return {"status": "success", "message": "Terminé", "count": len(conversations)}
+
+# ============================================================
 # 6. SUIVI
 # ============================================================
 
-processed = set()
-PROCESSED_FILE = "/tmp/processed_comments.json"
+processed_comments = set()
+processed_messages = set()
 
-def load_processed():
-    global processed
+COMMENTS_FILE = "/tmp/processed_comments.json"
+MESSAGES_FILE = "/tmp/processed_messages.json"
+
+def load_processed_comments():
+    global processed_comments
     try:
-        if os.path.exists(PROCESSED_FILE):
-            with open(PROCESSED_FILE, 'r') as f:
-                processed = set(json.load(f))
+        if os.path.exists(COMMENTS_FILE):
+            with open(COMMENTS_FILE, 'r') as f:
+                processed_comments = set(json.load(f))
     except:
         pass
 
-def save_processed():
+def save_processed_comments():
     try:
-        with open(PROCESSED_FILE, 'w') as f:
-            json.dump(list(processed), f)
+        with open(COMMENTS_FILE, 'w') as f:
+            json.dump(list(processed_comments), f)
     except:
         pass
 
-load_processed()
+def load_processed_messages():
+    global processed_messages
+    try:
+        if os.path.exists(MESSAGES_FILE):
+            with open(MESSAGES_FILE, 'r') as f:
+                processed_messages = set(json.load(f))
+    except:
+        pass
+
+def save_processed_messages():
+    try:
+        with open(MESSAGES_FILE, 'w') as f:
+            json.dump(list(processed_messages), f)
+    except:
+        pass
+
+load_processed_comments()
+load_processed_messages()
 
 # ============================================================
 # 7. FONCTION GROQ
@@ -304,13 +329,13 @@ Tu es un trader pro depuis 8 ans. Parle comme un humain.
 Termine toujours par le WhatsApp : +22960315458
 Sois naturel, joyeux, accessible.""",
         
+        "message": """Tu es Rick. Réponds à ce message privé de manière professionnelle et chaleureuse.
+Termine toujours par le WhatsApp : +22960315458
+Sois utile et encourageant.""",
+        
         "faq": """Tu es Rick. Réponds de manière claire et utile.
 Termine toujours par le WhatsApp : +22960315458
-Sois précis et concis.""",
-        
-        "cours": """Tu es Rick. Crée un cours structuré sur le sujet.
-Termine toujours par le WhatsApp : +22960315458
-Sois éducatif et inspirant."""
+Sois précis et concis."""
     }
     
     prompt = prompts.get(prompt_type, prompts["commentaire"])
@@ -336,11 +361,39 @@ Sois éducatif et inspirant."""
         return f"Salut, envoie-moi un message sur WhatsApp {WHATSAPP} 👍"
 
 # ============================================================
-# 8. PUBLICATION À 30 MINUTES
+# 8. TRAITEMENT DES COMMENTAIRES
+# ============================================================
+
+def process_comments():
+    print("=" * 50)
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] 🔄 TRAITEMENT DES COMMENTAIRES")
+    
+    if not check_token():
+        print("❌ Token invalide")
+        return {"status": "error"}
+    
+    comments = get_comments()
+    if not comments:
+        print("📭 Aucun commentaire")
+        return {"status": "success", "message": "Aucun commentaire", "count": 0}
+    
+    print(f"📝 {len(comments)} commentaire(s) à traiter")
+    
+    for c in comments:
+        print(f"💬 {c['author']}: {c['message'][:50]}...")
+        reply = groq_response(c['message'], c['author'], "commentaire")
+        if reply_to_comment(c['id'], reply):
+            processed_comments.add(c['id'])
+            save_processed_comments()
+        time.sleep(1)
+    
+    return {"status": "success", "message": "Terminé", "count": len(comments)}
+
+# ============================================================
+# 9. PUBLICATION À 30 MINUTES
 # ============================================================
 
 def publish_at_30():
-    """Publie alternativement : FAQ, Stats, Graphique."""
     print("=" * 50)
     print(f"[{datetime.now().strftime('%H:%M:%S')}] 🕐 PUBLICATION À 30 MINUTES")
     
@@ -348,7 +401,6 @@ def publish_at_30():
         print("❌ Token invalide")
         return {"status": "error"}
     
-    # Choisir aléatoirement le type de publication
     types = ["faq", "stats", "chart"]
     chosen = random.choice(types)
     
@@ -360,10 +412,8 @@ def publish_at_30():
         return publish_chart_post()
 
 def publish_faq():
-    """Publie une FAQ aléatoire."""
     key = random.choice(list(FAQ.keys()))
     answer = FAQ[key]
-    
     msg = f"""❓ QUESTION FRÉQUENTE
 📖 Sujet: {key.upper()}
 
@@ -377,11 +427,9 @@ def publish_faq():
     return {"status": "success" if result else "error", "type": "faq", "topic": key}
 
 def publish_stats():
-    """Publie les statistiques de la page."""
     stats = get_page_stats()
     if not stats:
         return {"status": "error", "message": "Stats non disponibles"}
-    
     msg = f"""📊 RAPPORT DE LA PAGE
 📅 {datetime.now().strftime('%d/%m/%Y %H:%M')}
 
@@ -397,37 +445,26 @@ def publish_stats():
     return {"status": "success" if result else "error", "type": "stats"}
 
 def publish_chart_post():
-    """Publie un graphique."""
-    result = publish_chart()
-    return {"status": "success" if result else "error", "type": "chart"}
+    img_base64 = generate_chart_image()
+    if not img_base64:
+        return {"status": "error", "message": "Erreur graphique"}
+    msg = f"""📊 VISUALISATION DE L'ENGAGEMENT
+📅 {datetime.now().strftime('%d/%m/%Y %H:%M')}
 
-# ============================================================
-# 9. TRAITEMENT DES COMMENTAIRES
-# ============================================================
+📈 Évolution de l'engagement cette semaine
 
-def process_comments():
-    print("=" * 50)
-    print(f"[{datetime.now().strftime('%H:%M:%S')}] 🔄 Traitement des commentaires")
-    
-    if not check_token():
-        print("❌ Token invalide")
-        return {"status": "error"}
-    
-    comments = get_comments()
-    if not comments:
-        print("📭 Aucun commentaire")
-        return {"status": "success", "message": "Aucun commentaire", "count": 0}
-    
-    print(f"📝 {len(comments)} commentaire(s)")
-    for c in comments:
-        print(f"💬 {c['author']}: {c['message'][:30]}...")
-        reply = groq_response(c['message'], c['author'], "commentaire")
-        if reply_to_comment(c['id'], reply):
-            processed.add(c['id'])
-            save_processed()
-        time.sleep(1)
-    
-    return {"status": "success", "message": "Terminé", "count": len(comments)}
+📱 WhatsApp: {WHATSAPP}
+🤖 Rick Bot
+"""
+    try:
+        url = f"https://graph.facebook.com/v24.0/{PAGE_ID}/photos"
+        files = {'source': ('chart.png', base64.b64decode(img_base64), 'image/png')}
+        data = {'caption': msg, 'access_token': PAGE_TOKEN, 'published': True}
+        r = requests.post(url, files=files, data=data, timeout=30)
+        return {"status": "success" if r.status_code == 200 else "error", "type": "chart"}
+    except Exception as e:
+        print(f"❌ Erreur: {e}")
+        return {"status": "error", "message": str(e)}
 
 # ============================================================
 # 10. ROUTES
@@ -439,8 +476,10 @@ def home():
         "status": "active",
         "whatsapp": WHATSAPP,
         "page_id": PAGE_ID,
-        "version": "4.3 - Auto + FAQ + Stats + Graphiques (30)",
-        "modes": ["auto (commentaires)", "faq (30)", "stats (30)", "graphique (30)"]
+        "version": "5.0 - Avec Messenger",
+        "modes": ["commentaires", "messages privés", "faq (30)", "stats (30)", "graphique (30)"],
+        "processed_comments": len(processed_comments),
+        "processed_messages": len(processed_messages)
     })
 
 @app.route('/ping')
@@ -453,6 +492,12 @@ def wakeup():
     result = process_comments()
     return jsonify(result)
 
+@app.route('/messages')
+def messages():
+    """Mode Messenger : Traite les messages privés."""
+    result = process_messages()
+    return jsonify(result)
+
 @app.route('/publish')
 def publish():
     """Publie aléatoirement à 30."""
@@ -461,39 +506,40 @@ def publish():
 
 @app.route('/publish/faq')
 def publish_faq_route():
-    """Publie une FAQ."""
     result = publish_faq()
     return jsonify(result)
 
 @app.route('/publish/stats')
 def publish_stats_route():
-    """Publie les statistiques."""
     result = publish_stats()
     return jsonify(result)
 
 @app.route('/publish/chart')
 def publish_chart_route():
-    """Publie un graphique."""
     result = publish_chart_post()
     return jsonify(result)
 
 @app.route('/test')
 def test():
     comments = get_comments()
+    messages = get_conversations()
     stats = get_page_stats()
     return jsonify({
         "token_valid": check_token(),
         "page_id": PAGE_ID,
         "comments_count": len(comments),
+        "messages_count": len(messages),
         "stats": stats,
-        "version": "4.3"
+        "version": "5.0"
     })
 
 @app.route('/reset')
 def reset():
-    global processed
-    processed = set()
-    save_processed()
+    global processed_comments, processed_messages
+    processed_comments = set()
+    processed_messages = set()
+    save_processed_comments()
+    save_processed_messages()
     return jsonify({"status": "reset"})
 
 # ============================================================
@@ -502,11 +548,11 @@ def reset():
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    print(f"🚀 Assistant v4.3 - Auto + FAQ + Stats + Graphiques (30)")
+    print(f"🚀 Assistant v5.0 - Avec Messenger")
     print(f"📱 WhatsApp: {WHATSAPP}")
-    print(f"📚 Auto (commentaires): /wakeup")
+    print(f"📚 Commentaires: /wakeup")
+    print(f"✉️ Messages privés: /messages")
     print(f"📚 FAQ (30): /publish/faq")
     print(f"📊 Stats (30): /publish/stats")
     print(f"📈 Graphique (30): /publish/chart")
-    print(f"🎲 Aléatoire (30): /publish")
     app.run(host='0.0.0.0', port=port)
