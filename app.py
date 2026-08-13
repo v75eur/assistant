@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # ============================================================
-# ASSISTANT GROQ - VERSION AMÉLIORÉE
-# Récupère tous les commentaires récents
+# ASSISTANT GROQ - VERSION 3.3
+# Récupère tous les commentaires de tous les posts
 # ============================================================
 
 import os
@@ -38,7 +38,7 @@ Termine toujours par le WhatsApp : +22960315458
 Sois naturel, joyeux, accessible."""
 
 # ============================================================
-# 3. SUIVI DES COMMENTAIRES (ANTI-DOUBLON)
+# 3. SUIVI DES COMMENTAIRES
 # ============================================================
 
 processed = set()
@@ -73,38 +73,57 @@ def check_token():
     try:
         url = f"https://graph.facebook.com/v24.0/me?access_token={PAGE_TOKEN}"
         r = requests.get(url, timeout=10)
+        print(f"🔍 Token: {'✅' if r.status_code == 200 else '❌'} ({r.status_code})")
         return r.status_code == 200
     except:
         return False
 
-def get_all_comments(limit=20):
-    """Récupère les commentaires de plusieurs posts."""
+def get_all_comments():
+    """Récupère TOUS les commentaires de TOUS les posts."""
     if not PAGE_TOKEN:
         return []
     
     all_comments = []
     try:
-        # Récupérer les posts récents
+        # Récupérer les posts (sans limite)
         url = f"https://graph.facebook.com/v24.0/{PAGE_ID}/feed"
         params = {
-            'fields': 'id,message,comments{id,message,from{name,id,email}}',
-            'limit': limit,
+            'fields': 'id,message,comments{id,message,from{name,id}}',
+            'limit': 50,  # Plus de posts
             'access_token': PAGE_TOKEN
         }
+        
+        print("🔍 Récupération de tous les commentaires...")
         r = requests.get(url, params=params, timeout=30)
         data = r.json()
         
+        # Vérifier si on a des données
+        if 'data' not in data:
+            print(f"❌ Pas de données: {data}")
+            return []
+        
+        print(f"📄 {len(data.get('data', []))} posts trouvés")
+        
         for post in data.get('data', []):
             if 'comments' in post:
-                for c in post['comments'].get('data', []):
+                comments_data = post['comments'].get('data', [])
+                print(f"  📝 {len(comments_data)} commentaires dans un post")
+                
+                for c in comments_data:
                     author = c.get('from', {}).get('name', 'Inconnu')
                     author_id = c.get('from', {}).get('id', '')
                     comment_id = c.get('id', '')
                     
+                    # Ignorer la page elle-même
                     if author_id == PAGE_ID:
                         continue
                     
+                    # Ignorer les déjà traités
                     if comment_id in processed:
+                        continue
+                    
+                    # Ignorer les commentaires vides
+                    if not c.get('message', '').strip():
                         continue
                     
                     all_comments.append({
@@ -113,6 +132,7 @@ def get_all_comments(limit=20):
                         'author': author,
                         'author_id': author_id
                     })
+                    print(f"  💬 {author}: {c.get('message', '')[:30]}...")
         
         return all_comments
     except Exception as e:
@@ -126,8 +146,14 @@ def reply(comment_id, message):
         url = f"https://graph.facebook.com/v24.0/{comment_id}/comments"
         data = {'message': message, 'access_token': PAGE_TOKEN}
         r = requests.post(url, data=data, timeout=30)
-        return r.status_code == 200
-    except:
+        if r.status_code == 200:
+            print(f"✅ Réponse envoyée")
+            return True
+        else:
+            print(f"❌ Erreur réponse: {r.text}")
+            return False
+    except Exception as e:
+        print(f"❌ Erreur: {e}")
         return False
 
 def groq_response(comment, author):
@@ -139,6 +165,7 @@ def groq_response(comment, author):
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": f"Commentaire de {author}: {comment}"}
         ]
+        print(f"🤖 Appel Groq...")
         r = client.chat.completions.create(
             model="llama-3.3-70b-versatile",
             messages=messages,
@@ -159,23 +186,20 @@ def process():
     
     if not check_token():
         print("❌ Token invalide")
-        return {"status": "error"}
+        return {"status": "error", "message": "Token invalide"}
     
-    comments = get_all_comments(limit=20)
+    comments = get_all_comments()
     if not comments:
         print("📭 Aucun commentaire")
         return {"status": "success", "message": "Aucun commentaire", "count": 0}
     
-    print(f"📝 {len(comments)} commentaire(s)")
+    print(f"📝 {len(comments)} commentaire(s) à traiter")
     for c in comments:
-        print(f"💬 {c['author']}: {c['message'][:50]}...")
+        print(f"\n💬 {c['author']}: {c['message'][:50]}...")
         msg = groq_response(c['message'], c['author'])
         if reply(c['id'], msg):
-            print("✅ Réponse envoyée")
             processed.add(c['id'])
             save_processed()
-        else:
-            print("❌ Échec")
         time.sleep(1)
     
     return {"status": "success", "message": "Terminé", "count": len(comments)}
@@ -206,7 +230,7 @@ def wakeup():
 
 @app.route('/test')
 def test():
-    comments = get_all_comments(limit=20)
+    comments = get_all_comments()
     return jsonify({
         "token_valid": check_token(),
         "page_id": PAGE_ID,
@@ -227,6 +251,6 @@ def reset():
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    print(f"🚀 Assistant v3.2")
+    print(f"🚀 Assistant v3.3")
     print(f"📱 WhatsApp: {WHATSAPP}")
     app.run(host='0.0.0.0', port=port)
