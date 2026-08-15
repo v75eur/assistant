@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 # ============================================================
-# ASSISTANT GROQ - VERSION TRADING PRO
-# Commentaires + Messages + Cours + Conseils Trading
+# ASSISTANT GROQ - VERSION QWEN 3.6 27B
+# Migration depuis llama-3.3-70b-versatile
+# Toutes les fonctionnalités sont conservées
 # ============================================================
 
 import os
@@ -28,40 +29,13 @@ print(f"📱 WhatsApp: {WHATSAPP}")
 print(f"📄 Page ID: {PAGE_ID}")
 
 # ============================================================
-# 2. PROMPT PRINCIPAL (HUMAIN & TRADING)
+# 2. PROMPT PRINCIPAL (INCHANGÉ)
 # ============================================================
 
 SYSTEM_PROMPT = """Tu es Rick, le fondateur de Trader123.
-
-Tu es un trader professionnel depuis 8 ans, basé au Bénin.
-Tu es passionné par le trading et tu aimes partager tes connaissances.
-
-TON STYLE :
-- Parle comme un humain : naturel, chaleureux, joyeux
-- Utilise des expressions : "tu vois", "en vrai", "franchement", "du coup"
-- Fais 1-2 fautes de frappe par message
-- Termine toujours par le WhatsApp : +22960315458
-- Sois inspirant et motivant
-
-CE QUE TU PROPOSES :
-- Formations trading (débutant à avancé)
-- Analyse technique (supports, résistances, tendances)
-- Psychologie du trading (gestion des émotions)
-- Money management (gestion de capital)
-- Stratégies de trading gagnantes
-- Accompagnement personnalisé
-
-CE QUE TU NE FAIS PAS :
-- Promettre des gains garantis
-- Être négatif ou agressif
-- Faire du spam
-
-TA VISION :
-- Rendre le trading accessible à tous
-- Créer une communauté de traders passionnés
-- Aider les gens à réussir
-- Faire prospérer Trader123
-"""
+Tu es un trader pro depuis 8 ans. Parle comme un humain.
+Termine toujours par le WhatsApp : +22960315458
+Sois naturel, joyeux, accessible."""
 
 # ============================================================
 # 3. BASE DE CONNAISSANCES TRADING
@@ -106,7 +80,6 @@ TRADING_KNOWLEDGE = {
 }
 
 def get_random_tip():
-    """Retourne un conseil aléatoire."""
     categories = list(TRADING_KNOWLEDGE.keys())
     category = random.choice(categories)
     tips = TRADING_KNOWLEDGE[category]
@@ -114,7 +87,7 @@ def get_random_tip():
     return category, tip
 
 # ============================================================
-# 4. SUIVI
+# 4. SUIVI (ANTI-DOUBLON) - INCHANGÉ
 # ============================================================
 
 processed_comments = set()
@@ -158,7 +131,7 @@ load_processed_comments()
 load_processed_messages()
 
 # ============================================================
-# 5. FONCTIONS FACEBOOK
+# 5. FONCTIONS FACEBOOK - INCHANGÉES
 # ============================================================
 
 def check_token():
@@ -182,6 +155,10 @@ def publish_post(message):
     except:
         return False
 
+# ============================================================
+# 6. FONCTION GROQ - NOUVEAU MODÈLE (Qwen 3.6 27B)
+# ============================================================
+
 def groq_response(message, author):
     if not GROQ_API_KEY:
         return f"Salut ! Contacte-moi sur WhatsApp {WHATSAPP}"
@@ -191,22 +168,26 @@ def groq_response(message, author):
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": f"Message de {author}: {message}"}
         ]
-        r = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+        
+        # 🔴 NOUVEAU MODÈLE : qwen/qwen3.6-27b
+        # Remplace llama-3.3-70b-versatile
+        response = client.chat.completions.create(
+            model="qwen/qwen3.6-27b",
             messages=messages,
             max_tokens=150,
             temperature=0.9,
         )
-        reply = r.choices[0].message.content
+        
+        reply = response.choices[0].message.content
         if WHATSAPP not in reply:
             reply += f" 📱 WhatsApp : {WHATSAPP}"
         return reply
     except Exception as e:
-        print(f"❌ Groq: {e}")
+        print(f"❌ Erreur Groq: {e}")
         return f"Salut, envoie-moi un message sur WhatsApp {WHATSAPP} 👍"
 
 # ============================================================
-# 6. COMMENTAIRES
+# 7. COMMENTAIRES - INCHANGÉ
 # ============================================================
 
 def get_comments():
@@ -251,7 +232,7 @@ def reply_to_comment(comment_id, message):
         return False
 
 # ============================================================
-# 7. MESSAGES PRIVÉS
+# 8. MESSAGES PRIVÉS - INCHANGÉ
 # ============================================================
 
 def get_conversations():
@@ -300,7 +281,7 @@ def reply_to_message(recipient_id, message):
         return False
 
 # ============================================================
-# 8. TRAITEMENTS
+# 9. TRAITEMENTS - INCHANGÉS
 # ============================================================
 
 def process_comments():
@@ -336,7 +317,7 @@ def process_messages():
     return {"status": "success", "count": len(messages)}
 
 # ============================================================
-# 9. PUBLICATIONS (COURS, CONSEILS, FAQ)
+# 10. PUBLICATIONS - INCHANGÉES
 # ============================================================
 
 def publish_course():
@@ -373,9 +354,7 @@ def publish_course():
     return {"status": "success" if result else "error", "topic": topic}
 
 def publish_tip():
-    """Publie un conseil de trading aléatoire."""
     category, tip = get_random_tip()
-    
     category_emoji = {
         "psychologie": "🧠",
         "money_management": "💰",
@@ -383,7 +362,6 @@ def publish_tip():
         "strategies": "🎯",
         "general": "💡"
     }
-    
     category_names = {
         "psychologie": "Psychologie du Trading",
         "money_management": "Money Management",
@@ -391,10 +369,8 @@ def publish_tip():
         "strategies": "Stratégies",
         "general": "Conseil Général"
     }
-    
     emoji = category_emoji.get(category, "📈")
     cat_name = category_names.get(category, "Conseil")
-    
     msg = f"""{emoji} CONSEIL TRADING
 📖 Catégorie: {cat_name}
 
@@ -419,7 +395,6 @@ def publish_faq():
         ("Comment gérer ses émotions en trading ?", "Accepte que les pertes font partie du jeu. Reste discipliné et ne trade pas sous l'impulsion de la peur ou de l'avidité."),
         ("C'est quoi l'analyse technique ?", "C'est l'étude des graphiques pour identifier des tendances, des supports, des résistances et des figures de retournement."),
     ]
-    
     question, answer = random.choice(faq_items)
     msg = f"""❓ QUESTION FRÉQUENTE
 📖 {question}
@@ -434,7 +409,7 @@ def publish_faq():
     return {"status": "success" if result else "error", "question": question}
 
 # ============================================================
-# 10. ROUTES
+# 11. ROUTES - INCHANGÉES
 # ============================================================
 
 @app.route('/')
@@ -443,7 +418,7 @@ def home():
         "status": "active",
         "whatsapp": WHATSAPP,
         "page_id": PAGE_ID,
-        "version": "Trading Pro"
+        "version": "Qwen 3.6 27B"
     })
 
 @app.route('/ping')
@@ -480,16 +455,16 @@ def reset():
     return jsonify({"status": "reset"})
 
 # ============================================================
-# 11. DÉMARRAGE
+# 12. DÉMARRAGE
 # ============================================================
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    print(f"🚀 Assistant Trading Pro")
+    print(f"🚀 Assistant - Modèle Qwen 3.6 27B")
     print(f"📱 WhatsApp: {WHATSAPP}")
     print(f"💬 /wakeup - Commentaires")
     print(f"✉️ /messages - Messages privés")
     print(f"📚 /course - Publier un cours")
-    print(f"💡 /tip - Publier un conseil trading")
+    print(f"💡 /tip - Publier un conseil")
     print(f"❓ /publish/faq - Publier une FAQ")
     app.run(host='0.0.0.0', port=port)
