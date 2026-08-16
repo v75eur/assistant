@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 # ============================================================
-# ASSISTANT GROQ - VERSION QWEN 3.6 27B
-# Migration depuis llama-3.3-70b-versatile
-# Toutes les fonctionnalités sont conservées
+# ASSISTANT GROQ - VERSION AVEC ANALYSE D'IMAGES
+# Ajout : analyse des images dans les messages privés
 # ============================================================
 
 import os
 import json
 import time
 import random
+import base64
 from datetime import datetime
 from flask import Flask, jsonify, request
 from groq import Groq
@@ -29,7 +29,7 @@ print(f"📱 WhatsApp: {WHATSAPP}")
 print(f"📄 Page ID: {PAGE_ID}")
 
 # ============================================================
-# 2. PROMPT PRINCIPAL (INCHANGÉ)
+# 2. PROMPT (INCHANGÉ)
 # ============================================================
 
 SYSTEM_PROMPT = """Tu es Rick, le fondateur de Trader123.
@@ -38,7 +38,7 @@ Termine toujours par le WhatsApp : +22960315458
 Sois naturel, joyeux, accessible."""
 
 # ============================================================
-# 3. BASE DE CONNAISSANCES TRADING
+# 3. BASE DE CONNAISSANCES (INCHANGÉE)
 # ============================================================
 
 TRADING_KNOWLEDGE = {
@@ -87,7 +87,7 @@ def get_random_tip():
     return category, tip
 
 # ============================================================
-# 4. SUIVI (ANTI-DOUBLON) - INCHANGÉ
+# 4. SUIVI (INCHANGÉ)
 # ============================================================
 
 processed_comments = set()
@@ -131,7 +131,7 @@ load_processed_comments()
 load_processed_messages()
 
 # ============================================================
-# 5. FONCTIONS FACEBOOK - INCHANGÉES
+# 5. FONCTIONS FACEBOOK (INCHANGÉES)
 # ============================================================
 
 def check_token():
@@ -156,7 +156,7 @@ def publish_post(message):
         return False
 
 # ============================================================
-# 6. FONCTION GROQ - NOUVEAU MODÈLE (Qwen 3.6 27B)
+# 6. FONCTION GROQ (INCHANGÉE)
 # ============================================================
 
 def groq_response(message, author):
@@ -168,16 +168,12 @@ def groq_response(message, author):
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": f"Message de {author}: {message}"}
         ]
-        
-        # 🔴 NOUVEAU MODÈLE : qwen/qwen3.6-27b
-        # Remplace llama-3.3-70b-versatile
         response = client.chat.completions.create(
             model="qwen/qwen3.6-27b",
             messages=messages,
             max_tokens=150,
             temperature=0.9,
         )
-        
         reply = response.choices[0].message.content
         if WHATSAPP not in reply:
             reply += f" 📱 WhatsApp : {WHATSAPP}"
@@ -187,7 +183,67 @@ def groq_response(message, author):
         return f"Salut, envoie-moi un message sur WhatsApp {WHATSAPP} 👍"
 
 # ============================================================
-# 7. COMMENTAIRES - INCHANGÉ
+# 7. NOUVEAU : ANALYSE D'IMAGES AVEC GROQ
+# ============================================================
+
+def analyze_image_with_groq(image_url, question="Que vois-tu sur cette image ?"):
+    """Analyse une image avec Qwen 3.6 27B."""
+    if not GROQ_API_KEY:
+        return "Je ne peux pas analyser d'images pour le moment."
+    try:
+        # Télécharger l'image
+        img_response = requests.get(image_url, timeout=30)
+        if img_response.status_code != 200:
+            return "Impossible de télécharger l'image."
+        
+        img_base64 = base64.b64encode(img_response.content).decode('utf-8')
+        
+        client = Groq(api_key=GROQ_API_KEY)
+        response = client.chat.completions.create(
+            model="qwen/qwen3.6-27b",
+            messages=[{
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": f"{question}\n\nAnalyse cette image de trading. Identifie les tendances, les supports/résistances et les signaux que tu vois. Sois clair et utile."},
+                    {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img_base64}"}}
+                ]
+            }],
+            max_tokens=300,
+            temperature=0.7,
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        print(f"❌ Erreur analyse image: {e}")
+        return f"Erreur lors de l'analyse de l'image. Veuillez réessayer. Erreur: {str(e)}"
+
+# ============================================================
+# 8. RÉCUPÉRATION DES PIÈCES JOINTES (NOUVEAU)
+# ============================================================
+
+def get_message_attachments(msg_id):
+    """Récupère les pièces jointes d'un message."""
+    if not PAGE_TOKEN:
+        return []
+    try:
+        url = f"https://graph.facebook.com/v24.0/{msg_id}/attachments"
+        params = {'access_token': PAGE_TOKEN}
+        r = requests.get(url, params=params, timeout=30)
+        data = r.json()
+        
+        images = []
+        for attachment in data.get('data', []):
+            if attachment.get('type') == 'image':
+                image_data = attachment.get('image_data', {})
+                image_url = image_data.get('url') or attachment.get('url')
+                if image_url:
+                    images.append(image_url)
+        return images
+    except Exception as e:
+        print(f"❌ Erreur récupération pièces jointes: {e}")
+        return []
+
+# ============================================================
+# 9. COMMENTAIRES (INCHANGÉ)
 # ============================================================
 
 def get_comments():
@@ -232,7 +288,7 @@ def reply_to_comment(comment_id, message):
         return False
 
 # ============================================================
-# 8. MESSAGES PRIVÉS - INCHANGÉ
+# 10. MESSAGES PRIVÉS (AMÉLIORÉ AVEC IMAGES)
 # ============================================================
 
 def get_conversations():
@@ -281,7 +337,7 @@ def reply_to_message(recipient_id, message):
         return False
 
 # ============================================================
-# 9. TRAITEMENTS - INCHANGÉS
+# 11. TRAITEMENTS
 # ============================================================
 
 def process_comments():
@@ -301,23 +357,54 @@ def process_comments():
     return {"status": "success", "count": len(comments)}
 
 def process_messages():
+    """Traite les messages privés, y compris les images."""
     print("=" * 50)
-    print(f"[{datetime.now().strftime('%H:%M:%S')}] ✉️ TRAITEMENT MESSAGES")
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] ✉️ TRAITEMENT MESSAGES (AVEC IMAGES)")
     if not check_token():
         return {"status": "error"}
+    
     messages = get_conversations()
     if not messages:
+        print("📭 Aucun message")
         return {"status": "success", "count": 0}
+    
+    print(f"📝 {len(messages)} message(s)")
     for msg in messages:
-        reply = groq_response(msg['message'], msg['author'])
+        print(f"✉️ {msg['author']}: {msg['message'][:50] if msg['message'] else 'Image'}...")
+        
+        # Vérifier si le message contient une image
+        images = get_message_attachments(msg['id'])
+        
+        if images and msg['message']:
+            # Message texte + image
+            reply = f"📸 J'ai vu ton image !\n\n"
+            reply += f"🔍 Analyse de l'image :\n"
+            analysis = analyze_image_with_groq(images[0], msg['message'])
+            reply += analysis
+            reply += f"\n\n📱 WhatsApp: {WHATSAPP}"
+        elif images:
+            # Image seule
+            reply = f"📸 J'ai reçu ton image !\n\n"
+            reply += f"🔍 Analyse de l'image :\n"
+            analysis = analyze_image_with_groq(images[0], "Que vois-tu sur cette image de trading ?")
+            reply += analysis
+            reply += f"\n\n📱 WhatsApp: {WHATSAPP}"
+        else:
+            # Message texte seul
+            reply = groq_response(msg['message'], msg['author'])
+        
         if reply_to_message(msg['author_id'], reply):
             processed_messages.add(msg['id'])
             save_processed_messages()
+            print(f"✅ Réponse envoyée")
+        else:
+            print(f"❌ Échec envoi")
         time.sleep(1)
+    
     return {"status": "success", "count": len(messages)}
 
 # ============================================================
-# 10. PUBLICATIONS - INCHANGÉES
+# 12. PUBLICATIONS (INCHANGÉES)
 # ============================================================
 
 def publish_course():
@@ -409,7 +496,7 @@ def publish_faq():
     return {"status": "success" if result else "error", "question": question}
 
 # ============================================================
-# 11. ROUTES - INCHANGÉES
+# 13. ROUTES (INCHANGÉES)
 # ============================================================
 
 @app.route('/')
@@ -418,7 +505,7 @@ def home():
         "status": "active",
         "whatsapp": WHATSAPP,
         "page_id": PAGE_ID,
-        "version": "Qwen 3.6 27B"
+        "version": "Avec analyse d'images"
     })
 
 @app.route('/ping')
@@ -455,15 +542,15 @@ def reset():
     return jsonify({"status": "reset"})
 
 # ============================================================
-# 12. DÉMARRAGE
+# 14. DÉMARRAGE
 # ============================================================
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    print(f"🚀 Assistant - Modèle Qwen 3.6 27B")
+    print(f"🚀 Assistant - Avec analyse d'images")
     print(f"📱 WhatsApp: {WHATSAPP}")
     print(f"💬 /wakeup - Commentaires")
-    print(f"✉️ /messages - Messages privés")
+    print(f"✉️ /messages - Messages privés (texte + images)")
     print(f"📚 /course - Publier un cours")
     print(f"💡 /tip - Publier un conseil")
     print(f"❓ /publish/faq - Publier une FAQ")
