@@ -555,3 +555,52 @@ if __name__ == '__main__':
     print(f"💡 /tip - Publier un conseil")
     print(f"❓ /publish/faq - Publier une FAQ")
     app.run(host='0.0.0.0', port=port)
+
+# ============================================================
+# AJOUT : PUBLICATION SUR LES STORIES
+# ============================================================
+
+@app.route('/publish/story', methods=['POST'])
+def publish_story():
+    """Publie une Story à partir d'une image et d'un texte."""
+    try:
+        data = request.json
+        image_url = data.get('image_url')
+        text = data.get('text', '')
+        
+        if not image_url:
+            return jsonify({"error": "image_url requis"}), 400
+        
+        # Télécharger l'image
+        img_response = requests.get(image_url, timeout=30)
+        if img_response.status_code != 200:
+            return jsonify({"error": "Impossible de télécharger l'image"}), 400
+        
+        # Uploader la photo pour la Story
+        photo_id = upload_photo_for_story(img_response.content, text[:200])
+        if not photo_id:
+            return jsonify({"error": "Erreur téléchargement photo"}), 500
+        
+        # Créer la Story
+        result = create_photo_story(photo_id, text)
+        if result:
+            return jsonify({
+                "status": "success", 
+                "story_id": result.get('id'),
+                "message": "Story publiée avec succès"
+            })
+        else:
+            return jsonify({"error": "Erreur création Story"}), 500
+            
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/publish/story/analysis')
+def publish_analysis_story_route():
+    """Publie une Story avec l'analyse la plus récente."""
+    # Cette route serait appelée par un cron-job
+    # Pour l'instant, elle retourne un message
+    return jsonify({
+        "status": "info",
+        "message": "Cette route doit être intégrée avec le bot Forex"
+    })
