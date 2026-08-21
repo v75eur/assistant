@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # ============================================================
-# ASSISTANT GROQ - VERSION AVEC ANALYSE D'IMAGES
-# Ajout : analyse des images dans les messages privés
+# ASSISTANT GROQ - VERSION SENTIMENT + IMAGES (POLLINATIONS)
+# Sans matplotlib - Compatible Python 3.14
 # ============================================================
 
 import os
@@ -9,7 +9,7 @@ import json
 import time
 import random
 import base64
-from datetime import datetime
+from datetime import datetime, date
 from flask import Flask, jsonify, request
 from groq import Groq
 import requests
@@ -24,121 +24,333 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY_1", "")
 PAGE_ID = os.getenv("FB_PAGE_ID", "620580204479095")
 PAGE_TOKEN = os.getenv("FB_PAGE_TOKEN", "")
 WHATSAPP = os.getenv("WHATSAPP_NUMBER", "+22960315458")
+EMAIL = "bottrade7425@gmail.com"
+API_VERSION = "v24.0"
 
 print(f"📱 WhatsApp: {WHATSAPP}")
+print(f"📧 Email: {EMAIL}")
 print(f"📄 Page ID: {PAGE_ID}")
 
 # ============================================================
-# 2. PROMPT (INCHANGÉ)
+# 2. LIMITES POUR LES IMAGES (1 PAR JOUR)
 # ============================================================
 
-SYSTEM_PROMPT = """Tu es Rick, le fondateur de Trader123.
-Tu es un trader pro depuis 8 ans. Parle comme un humain.
-Termine toujours par le WhatsApp : +22960315458
-Sois naturel, joyeux, accessible."""
+image_generated_today = False
+last_image_date = None
+
+def can_generate_image():
+    """Vérifie si on peut générer une image aujourd'hui (1 par jour)."""
+    global image_generated_today, last_image_date
+    today = date.today()
+    
+    if last_image_date != today:
+        image_generated_today = False
+        last_image_date = today
+    
+    return not image_generated_today
+
+def mark_image_generated():
+    """Marque qu'une image a été générée aujourd'hui."""
+    global image_generated_today
+    image_generated_today = True
 
 # ============================================================
-# 3. BASE DE CONNAISSANCES (INCHANGÉE)
+# 3. ANALYSE DE SENTIMENT (LOCAL, SANS API)
 # ============================================================
 
-TRADING_KNOWLEDGE = {
-    "psychologie": [
-        "La peur et l'avidité sont tes pires ennemis en trading.",
-        "Une émotion peut être présente sans déterminer ton action.",
-        "Patience + discipline + sang-froid = succès.",
-        "Le FOMO (peur de rater) est le piège du débutant.",
-        "Accepte les pertes, elles font partie du jeu."
-    ],
-    "money_management": [
-        "Risque 1-2% de ton capital par trade.",
-        "Le SL est ton ami, pas un ennemi.",
-        "Calcule ta taille de position après le SL.",
-        "Ne jamais risquer plus que ce que tu peux perdre.",
-        "Un mauvais money management détruit plus de comptes que les mauvais trades."
-    ],
-    "technique": [
-        "H1 → M15 → M5 : la structure gagnante pour V75.",
-        "H4 → H1 → M15 → M5 : la structure pour EUR/USD.",
-        "Une figure de bougie seule n'est pas un signal.",
-        "Contexte → zone → figure → confirmation → entrée.",
-        "Les supports et résistances sont tes meilleurs alliés."
-    ],
-    "strategies": [
-        "Attends la confirmation avant d'entrer.",
-        "Ne trade pas contre la tendance principale.",
-        "Les zones de demande/offre sont puissantes.",
-        "Les figures de retournement sont tes amies.",
-        "Le trading, c'est 80% de patience et 20% d'action."
-    ],
-    "general": [
-        "Le trading est un métier qui s'apprend.",
-        "Sois discipliné, même quand tu gagnes.",
-        "Le marché est toujours là demain.",
-        "La formation est le meilleur investissement.",
-        "Construis une méthode, pas des paris."
+def detect_sentiment(text):
+    """
+    Analyse le sentiment du texte localement.
+    Returns: 'positive', 'negative', 'neutral'
+    """
+    positive_words = [
+        "merci", "génial", "super", "top", "cool", "bravo", "bonjour", "salut",
+        "content", "heureux", "motivé", "enthousiaste", "passionné", "intéressé",
+        "formidable", "excellent", "parfait", "wow", "géniale", "superbe",
+        "merveilleux", "fantastique", "incroyable", "extraordinaire"
     ]
-}
+    
+    negative_words = [
+        "triste", "frustré", "perdu", "difficile", "compliqué", "galère",
+        "fatigué", "déçu", "énervé", "agacé", "inquiet", "stressé",
+        "découragé", "déprimé", "pessimiste", "négatif", "problème",
+        "erreur", "perte", "difficulté", "compliqué", "embêtant"
+    ]
+    
+    text_lower = text.lower()
+    positive_count = sum(1 for word in positive_words if word in text_lower)
+    negative_count = sum(1 for word in negative_words if word in text_lower)
+    
+    if positive_count > negative_count:
+        return "positive"
+    elif negative_count > positive_count:
+        return "negative"
+    else:
+        return "neutral"
 
-def get_random_tip():
-    categories = list(TRADING_KNOWLEDGE.keys())
-    category = random.choice(categories)
-    tips = TRADING_KNOWLEDGE[category]
-    tip = random.choice(tips)
-    return category, tip
+def get_sentiment_emoji(sentiment):
+    """Retourne un emoji selon le sentiment."""
+    emojis = {
+        "positive": "😊",
+        "negative": "😔",
+        "neutral": "😐"
+    }
+    return emojis.get(sentiment, "😐")
 
-# ============================================================
-# 4. SUIVI (INCHANGÉ)
-# ============================================================
-
-processed_comments = set()
-processed_messages = set()
-COMMENTS_FILE = "/tmp/processed_comments.json"
-MESSAGES_FILE = "/tmp/processed_messages.json"
-
-def load_processed_comments():
-    global processed_comments
-    try:
-        if os.path.exists(COMMENTS_FILE):
-            with open(COMMENTS_FILE, 'r') as f:
-                processed_comments = set(json.load(f))
-    except:
-        pass
-
-def save_processed_comments():
-    try:
-        with open(COMMENTS_FILE, 'w') as f:
-            json.dump(list(processed_comments), f)
-    except:
-        pass
-
-def load_processed_messages():
-    global processed_messages
-    try:
-        if os.path.exists(MESSAGES_FILE):
-            with open(MESSAGES_FILE, 'r') as f:
-                processed_messages = set(json.load(f))
-    except:
-        pass
-
-def save_processed_messages():
-    try:
-        with open(MESSAGES_FILE, 'w') as f:
-            json.dump(list(processed_messages), f)
-    except:
-        pass
-
-load_processed_comments()
-load_processed_messages()
+def get_sentiment_response(sentiment, author):
+    """Retourne une réponse adaptée au sentiment."""
+    responses = {
+        "positive": [
+            f"Super content de te voir si enthousiaste {author} ! 🚀",
+            f"Ça fait plaisir de voir autant d'énergie {author} ! 💪",
+            f"Tu es motivé, j'adore ça {author} ! On va construire des trucs géniaux ! 🔥"
+        ],
+        "negative": [
+            f"Je comprends ta frustration {author}. Je suis là pour t'aider. 💙",
+            f"Ne lâche pas {author}, le trading c'est un chemin, pas un sprint. 🤝",
+            f"Je suis désolé que tu te sentes comme ça {author}. On va trouver une solution. 🌟"
+        ],
+        "neutral": [
+            f"Content de te voir ici {author} ! Qu'est-ce qui t'amène ? 👋",
+            f"Salut {author} ! Je suis là pour répondre à tes questions. 📚",
+            f"Bienvenue {author} ! Comment puis-je t'aider aujourd'hui ? 🤗"
+        ]
+    }
+    
+    return random.choice(responses.get(sentiment, responses["neutral"]))
 
 # ============================================================
-# 5. FONCTIONS FACEBOOK (INCHANGÉES)
+# 4. PROMPT AVEC SENTIMENT
+# ============================================================
+
+def get_system_prompt(lang="fr"):
+    """Retourne le prompt système avec les infos de contact."""
+    base_fr = f"""Tu es Rick, le fondateur de Trader123.
+
+TA MISSION :
+- Faire rêver les gens sur le trading
+- Montrer que le trading peut changer une vie
+- Donner envie de rejoindre Trader123
+- Être humain, pas robotique
+- Réponds en FRANÇAIS si le commentaire est en français
+- Réponds en ANGLAIS si le commentaire est en anglais
+- Termine toujours par WhatsApp + Email
+
+CE QUE TU PROPOSES :
+✅ Formations trading (débutant à avancé)
+✅ Analyse technique
+✅ Psychologie du trading
+✅ Money management
+✅ Stratégies gagnantes
+✅ Accompagnement personnalisé
+✅ Bots et assistants IA
+
+CE QUE TU FAIS RÊVER :
+✅ La liberté financière
+✅ Trader où tu veux, quand tu veux
+✅ Gagner en confiance
+✅ Maîtriser un métier d'avenir
+✅ Bâtir son propre empire numérique
+
+📱 WhatsApp: {WHATSAPP}
+📧 Email: {EMAIL}
+"""
+    
+    base_en = f"""You are Rick, the founder of Trader123.
+
+YOUR MISSION:
+- Inspire people about trading
+- Show that trading can change lives
+- Make people dream of financial freedom
+- Be human, not robotic
+- Respond in FRENCH if the comment is in French
+- Respond in ENGLISH if the comment is in English
+- Always end with WhatsApp + Email
+
+YOUR OFFERS:
+✅ Trading training (beginner to advanced)
+✅ Technical analysis
+✅ Trading psychology
+✅ Money management
+✅ Winning strategies
+✅ Personal coaching
+✅ Bots and AI assistants
+
+WHAT YOU DREAM OF:
+✅ Financial freedom
+✅ Trade anywhere, anytime
+✅ Gain confidence
+✅ Master a future profession
+✅ Build your own digital empire
+
+📱 WhatsApp: {WHATSAPP}
+📧 Email: {EMAIL}
+"""
+    
+    return base_fr if lang == "fr" else base_en
+
+# ============================================================
+# 5. DÉTECTION DE LA LANGUE
+# ============================================================
+
+def detect_language(text):
+    """Détecte si le texte est en français ou en anglais."""
+    french_words = ["bonjour", "salut", "merci", "trading", "formation", "aide", 
+                    "comment", "pourquoi", "je", "tu", "vous", "nous", "avec", 
+                    "sans", "mais", "ou", "donc", "car", "parce", "est-ce", 
+                    "quoi", "qui", "où", "quand", "combien", "quel"]
+    
+    text_lower = text.lower()
+    french_count = sum(1 for word in french_words if word in text_lower)
+    
+    return "fr" if french_count > 2 else "en"
+
+# ============================================================
+# 6. FONCTION GROQ AVEC SENTIMENT
+# ============================================================
+
+def groq_response(message, author):
+    if not GROQ_API_KEY:
+        return f"Salut ! Contacte-moi sur WhatsApp {WHATSAPP} ou Email {EMAIL}"
+    
+    # 1. Analyser le sentiment
+    sentiment = detect_sentiment(message)
+    sentiment_emoji = get_sentiment_emoji(sentiment)
+    sentiment_reply = get_sentiment_response(sentiment, author)
+    
+    # 2. Détecter la langue
+    lang = detect_language(message)
+    system_prompt = get_system_prompt(lang)
+    
+    try:
+        client = Groq(api_key=GROQ_API_KEY)
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": f"Message de {author} (sentiment: {sentiment}): {message}"}
+        ]
+        response = client.chat.completions.create(
+            model="qwen/qwen3.6-27b",
+            messages=messages,
+            max_tokens=200,
+            temperature=0.9,
+        )
+        reply = response.choices[0].message.content
+        
+        # Ajouter le sentiment en début de réponse
+        reply = f"{sentiment_emoji} {sentiment_reply}\n\n{reply}"
+        
+        if WHATSAPP not in reply:
+            reply += f"\n📱 WhatsApp: {WHATSAPP}"
+        if EMAIL not in reply:
+            reply += f"\n📧 Email: {EMAIL}"
+        return reply
+    except Exception as e:
+        print(f"❌ Erreur Groq: {e}")
+        return f"Salut, contacte-moi sur WhatsApp {WHATSAPP} ou Email {EMAIL}"
+
+# ============================================================
+# 7. GÉNÉRATION D'IMAGES (1 PAR JOUR) - SANS MATPLOTLIB
+# ============================================================
+
+def generate_image(prompt):
+    """
+    Génère une image à partir d'un texte (1 par jour).
+    Utilise Pollinations.ai (gratuit, sans matplotlib)
+    """
+    if not can_generate_image():
+        print("⚠️ Limite d'images atteinte (1 par jour)")
+        return None
+    
+    try:
+        # Encoder le prompt pour l'URL
+        encoded_prompt = requests.utils.quote(prompt)
+        image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=1024&nologo=true"
+        
+        response = requests.get(image_url, timeout=30)
+        if response.status_code == 200:
+            mark_image_generated()
+            print("✅ Image générée avec succès")
+            return image_url
+        else:
+            print(f"❌ Erreur génération image: {response.status_code}")
+            return None
+    except Exception as e:
+        print(f"❌ Erreur image: {e}")
+        return None
+
+def publish_image_post():
+    """Publie un post avec une image générée."""
+    if not can_generate_image():
+        return {"status": "error", "message": "Limite d'images atteinte (1 par jour)"}
+    
+    # Prompts pour l'image
+    prompts = [
+        "A trader sitting in front of multiple screens, analyzing charts, confident and successful, professional trader, modern office, serious and focused",
+        "A person looking at a rising graph, feeling joy and success, celebrating, stock market",
+        "A trader on a beach with a laptop, making money from anywhere, remote work, freedom lifestyle",
+        "A graph showing an upward trend, symbolizing success and growth, stock market chart, green arrows",
+        "A person holding a phone with a trading app, showing profit, smiling, excited, financial success"
+    ]
+    
+    texts = [
+        "Le trading, c'est la liberté. Pas un job, une vie.",
+        "Chaque trader qui réussit a un jour été un débutant.",
+        "Le marché récompense la patience, pas l'impatience.",
+        "La meilleure formation, c'est l'expérience.",
+        "Le trading, c'est 80% de psychologie et 20% de technique.",
+        "Crois en toi, le marché croira en toi.",
+        "Un trade perdant n'est pas un échec, c'est une leçon.",
+        "Le trading, c'est apprendre à danser avec le marché.",
+        "La liberté financière commence par un premier pas.",
+        "Tu n'es pas obligé de rester où tu es. Le trading est une porte de sortie."
+    ]
+    
+    prompt = random.choice(prompts)
+    text = random.choice(texts)
+    
+    # Générer l'image
+    image_url = generate_image(prompt)
+    if not image_url:
+        return {"status": "error", "message": "Impossible de générer l'image"}
+    
+    # Construire le message
+    msg = f"💫 {text}\n\n"
+    msg += f"📱 WhatsApp: {WHATSAPP}\n"
+    msg += f"📧 Email: {EMAIL}\n"
+    msg += "🤖 Rick Bot - Inspirations"
+    
+    # Publier avec image
+    try:
+        img_response = requests.get(image_url, timeout=30)
+        if img_response.status_code != 200:
+            return {"status": "error", "message": "Impossible de télécharger l'image"}
+        
+        url = f"https://graph.facebook.com/{API_VERSION}/{PAGE_ID}/photos"
+        files = {'source': img_response.content}
+        data = {
+            'caption': msg,
+            'access_token': PAGE_TOKEN,
+            'published': True
+        }
+        response = requests.post(url, files=files, data=data, timeout=30)
+        
+        if response.status_code == 200:
+            mark_image_generated()
+            return {"status": "success", "image_url": image_url, "text": text}
+        else:
+            return {"status": "error", "message": f"Erreur Facebook: {response.text}"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+# ============================================================
+# 8. FONCTIONS FACEBOOK
 # ============================================================
 
 def check_token():
     if not PAGE_TOKEN:
         return False
     try:
-        url = f"https://graph.facebook.com/v24.0/me?access_token={PAGE_TOKEN}"
+        url = f"https://graph.facebook.com/{API_VERSION}/me?access_token={PAGE_TOKEN}"
         r = requests.get(url, timeout=10)
         return r.status_code == 200
     except:
@@ -148,7 +360,7 @@ def publish_post(message):
     if not PAGE_TOKEN:
         return False
     try:
-        url = f"https://graph.facebook.com/v24.0/{PAGE_ID}/feed"
+        url = f"https://graph.facebook.com/{API_VERSION}/{PAGE_ID}/feed"
         data = {'message': message, 'access_token': PAGE_TOKEN}
         r = requests.post(url, data=data, timeout=30)
         return r.status_code == 200
@@ -156,347 +368,7 @@ def publish_post(message):
         return False
 
 # ============================================================
-# 6. FONCTION GROQ (INCHANGÉE)
-# ============================================================
-
-def groq_response(message, author):
-    if not GROQ_API_KEY:
-        return f"Salut ! Contacte-moi sur WhatsApp {WHATSAPP}"
-    try:
-        client = Groq(api_key=GROQ_API_KEY)
-        messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": f"Message de {author}: {message}"}
-        ]
-        response = client.chat.completions.create(
-            model="qwen/qwen3.6-27b",
-            messages=messages,
-            max_tokens=150,
-            temperature=0.9,
-        )
-        reply = response.choices[0].message.content
-        if WHATSAPP not in reply:
-            reply += f" 📱 WhatsApp : {WHATSAPP}"
-        return reply
-    except Exception as e:
-        print(f"❌ Erreur Groq: {e}")
-        return f"Salut, envoie-moi un message sur WhatsApp {WHATSAPP} 👍"
-
-# ============================================================
-# 7. NOUVEAU : ANALYSE D'IMAGES AVEC GROQ
-# ============================================================
-
-def analyze_image_with_groq(image_url, question="Que vois-tu sur cette image ?"):
-    """Analyse une image avec Qwen 3.6 27B."""
-    if not GROQ_API_KEY:
-        return "Je ne peux pas analyser d'images pour le moment."
-    try:
-        # Télécharger l'image
-        img_response = requests.get(image_url, timeout=30)
-        if img_response.status_code != 200:
-            return "Impossible de télécharger l'image."
-        
-        img_base64 = base64.b64encode(img_response.content).decode('utf-8')
-        
-        client = Groq(api_key=GROQ_API_KEY)
-        response = client.chat.completions.create(
-            model="qwen/qwen3.6-27b",
-            messages=[{
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": f"{question}\n\nAnalyse cette image de trading. Identifie les tendances, les supports/résistances et les signaux que tu vois. Sois clair et utile."},
-                    {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img_base64}"}}
-                ]
-            }],
-            max_tokens=300,
-            temperature=0.7,
-        )
-        return response.choices[0].message.content
-    except Exception as e:
-        print(f"❌ Erreur analyse image: {e}")
-        return f"Erreur lors de l'analyse de l'image. Veuillez réessayer. Erreur: {str(e)}"
-
-# ============================================================
-# 8. RÉCUPÉRATION DES PIÈCES JOINTES (NOUVEAU)
-# ============================================================
-
-def get_message_attachments(msg_id):
-    """Récupère les pièces jointes d'un message."""
-    if not PAGE_TOKEN:
-        return []
-    try:
-        url = f"https://graph.facebook.com/v24.0/{msg_id}/attachments"
-        params = {'access_token': PAGE_TOKEN}
-        r = requests.get(url, params=params, timeout=30)
-        data = r.json()
-        
-        images = []
-        for attachment in data.get('data', []):
-            if attachment.get('type') == 'image':
-                image_data = attachment.get('image_data', {})
-                image_url = image_data.get('url') or attachment.get('url')
-                if image_url:
-                    images.append(image_url)
-        return images
-    except Exception as e:
-        print(f"❌ Erreur récupération pièces jointes: {e}")
-        return []
-
-# ============================================================
-# 9. COMMENTAIRES (INCHANGÉ)
-# ============================================================
-
-def get_comments():
-    if not PAGE_TOKEN:
-        return []
-    try:
-        url = f"https://graph.facebook.com/v24.0/{PAGE_ID}/feed"
-        params = {
-            'fields': 'id,message,comments{id,message,from{name,id}}',
-            'limit': 30,
-            'access_token': PAGE_TOKEN
-        }
-        r = requests.get(url, params=params, timeout=30)
-        data = r.json()
-        comments = []
-        for post in data.get('data', []):
-            if 'comments' in post:
-                for c in post['comments'].get('data', []):
-                    author_id = c.get('from', {}).get('id', '')
-                    comment_id = c.get('id', '')
-                    if author_id != PAGE_ID and comment_id not in processed_comments:
-                        comments.append({
-                            'id': comment_id,
-                            'message': c.get('message', ''),
-                            'author': c.get('from', {}).get('name', 'Inconnu'),
-                            'author_id': author_id
-                        })
-        return comments
-    except Exception as e:
-        print(f"❌ Erreur: {e}")
-        return []
-
-def reply_to_comment(comment_id, message):
-    if not PAGE_TOKEN:
-        return False
-    try:
-        url = f"https://graph.facebook.com/v24.0/{comment_id}/comments"
-        data = {'message': message, 'access_token': PAGE_TOKEN}
-        r = requests.post(url, data=data, timeout=30)
-        return r.status_code == 200
-    except:
-        return False
-
-# ============================================================
-# 10. MESSAGES PRIVÉS (AMÉLIORÉ AVEC IMAGES)
-# ============================================================
-
-def get_conversations():
-    if not PAGE_TOKEN:
-        return []
-    try:
-        url = f"https://graph.facebook.com/v24.0/{PAGE_ID}/conversations"
-        params = {
-            'fields': 'id,participants,messages{id,message,from{name,id}}',
-            'limit': 20,
-            'access_token': PAGE_TOKEN
-        }
-        r = requests.get(url, params=params, timeout=30)
-        data = r.json()
-        messages = []
-        for conv in data.get('data', []):
-            if 'messages' in conv:
-                for msg in conv['messages'].get('data', []):
-                    msg_id = msg.get('id', '')
-                    author_id = msg.get('from', {}).get('id', '')
-                    if author_id != PAGE_ID and msg_id not in processed_messages:
-                        messages.append({
-                            'id': msg_id,
-                            'message': msg.get('message', ''),
-                            'author': msg.get('from', {}).get('name', 'Inconnu'),
-                            'author_id': author_id
-                        })
-        return messages
-    except Exception as e:
-        print(f"❌ Erreur: {e}")
-        return []
-
-def reply_to_message(recipient_id, message):
-    if not PAGE_TOKEN:
-        return False
-    try:
-        url = f"https://graph.facebook.com/v24.0/{PAGE_ID}/messages"
-        data = {
-            'recipient': {'id': recipient_id},
-            'message': {'text': message},
-            'access_token': PAGE_TOKEN
-        }
-        r = requests.post(url, json=data, timeout=30)
-        return r.status_code == 200
-    except:
-        return False
-
-# ============================================================
-# 11. TRAITEMENTS
-# ============================================================
-
-def process_comments():
-    print("=" * 50)
-    print(f"[{datetime.now().strftime('%H:%M:%S')}] 💬 TRAITEMENT COMMENTAIRES")
-    if not check_token():
-        return {"status": "error"}
-    comments = get_comments()
-    if not comments:
-        return {"status": "success", "count": 0}
-    for c in comments:
-        reply = groq_response(c['message'], c['author'])
-        if reply_to_comment(c['id'], reply):
-            processed_comments.add(c['id'])
-            save_processed_comments()
-        time.sleep(1)
-    return {"status": "success", "count": len(comments)}
-
-def process_messages():
-    """Traite les messages privés, y compris les images."""
-    print("=" * 50)
-    print(f"[{datetime.now().strftime('%H:%M:%S')}] ✉️ TRAITEMENT MESSAGES (AVEC IMAGES)")
-    if not check_token():
-        return {"status": "error"}
-    
-    messages = get_conversations()
-    if not messages:
-        print("📭 Aucun message")
-        return {"status": "success", "count": 0}
-    
-    print(f"📝 {len(messages)} message(s)")
-    for msg in messages:
-        print(f"✉️ {msg['author']}: {msg['message'][:50] if msg['message'] else 'Image'}...")
-        
-        # Vérifier si le message contient une image
-        images = get_message_attachments(msg['id'])
-        
-        if images and msg['message']:
-            # Message texte + image
-            reply = f"📸 J'ai vu ton image !\n\n"
-            reply += f"🔍 Analyse de l'image :\n"
-            analysis = analyze_image_with_groq(images[0], msg['message'])
-            reply += analysis
-            reply += f"\n\n📱 WhatsApp: {WHATSAPP}"
-        elif images:
-            # Image seule
-            reply = f"📸 J'ai reçu ton image !\n\n"
-            reply += f"🔍 Analyse de l'image :\n"
-            analysis = analyze_image_with_groq(images[0], "Que vois-tu sur cette image de trading ?")
-            reply += analysis
-            reply += f"\n\n📱 WhatsApp: {WHATSAPP}"
-        else:
-            # Message texte seul
-            reply = groq_response(msg['message'], msg['author'])
-        
-        if reply_to_message(msg['author_id'], reply):
-            processed_messages.add(msg['id'])
-            save_processed_messages()
-            print(f"✅ Réponse envoyée")
-        else:
-            print(f"❌ Échec envoi")
-        time.sleep(1)
-    
-    return {"status": "success", "count": len(messages)}
-
-# ============================================================
-# 12. PUBLICATIONS (INCHANGÉES)
-# ============================================================
-
-def publish_course():
-    topics = [
-        "Les bases du trading pour débutants",
-        "Analyse technique : supports et résistances",
-        "La gestion des risques en trading",
-        "Psychologie du trading : garder son sang-froid",
-        "Stratégies de trading gagnantes",
-        "Comment trader l'or (XAUUSD)",
-        "Le trading des paires Forex",
-        "Le trading de la volatilité (V75)",
-        "Comment utiliser les bots de trading",
-        "Développer des assistants IA pour le trading",
-        "Les erreurs à éviter en trading",
-        "La discipline en trading",
-        "Comment analyser une tendance",
-        "Le money management pour les traders",
-        "Les 10 commandements du trader"
-    ]
-    topic = random.choice(topics)
-    course = groq_response(f"Crée un cours structuré sur : {topic}", "Formation")
-    msg = f"""📚 FORMATION TRADING
-📖 Sujet: {topic}
-{'=' * 40}
-
-{course}
-
-{'=' * 40}
-📱 WhatsApp: {WHATSAPP}
-🤖 Rick Bot
-"""
-    result = publish_post(msg)
-    return {"status": "success" if result else "error", "topic": topic}
-
-def publish_tip():
-    category, tip = get_random_tip()
-    category_emoji = {
-        "psychologie": "🧠",
-        "money_management": "💰",
-        "technique": "📊",
-        "strategies": "🎯",
-        "general": "💡"
-    }
-    category_names = {
-        "psychologie": "Psychologie du Trading",
-        "money_management": "Money Management",
-        "technique": "Analyse Technique",
-        "strategies": "Stratégies",
-        "general": "Conseil Général"
-    }
-    emoji = category_emoji.get(category, "📈")
-    cat_name = category_names.get(category, "Conseil")
-    msg = f"""{emoji} CONSEIL TRADING
-📖 Catégorie: {cat_name}
-
-💡 {tip}
-
-💬 "Le trading n'est pas un sprint, c'est un marathon."
-
-📱 WhatsApp: {WHATSAPP}
-🤖 Rick Bot
-"""
-    result = publish_post(msg)
-    return {"status": "success" if result else "error", "category": category}
-
-def publish_faq():
-    faq_items = [
-        ("C'est quoi le trading ?", "Le trading consiste à acheter et vendre des actifs financiers pour réaliser un profit. C'est un métier passionnant qui demande de la formation et de la discipline."),
-        ("Comment débuter en trading ?", "Commence par te former, ouvre un compte démo, et trade avec de très petites sommes. La patience est la clé !"),
-        ("C'est quoi le V75 ?", "Le V75 est un indice de volatilité sur Deriv. Il permet de trader la volatilité du marché."),
-        ("C'est quoi XAUUSD ?", "XAUUSD est la paire qui représente l'or face au dollar. C'est l'un des actifs les plus populaires en trading."),
-        ("Tu fais des formations ?", "Oui ! Je propose des formations personnalisées en trading. Contacte-moi sur WhatsApp pour en savoir plus."),
-        ("C'est quoi le money management ?", "C'est la gestion de ton capital. Il faut risquer 1-2% de ton compte par trade pour survivre sur le long terme."),
-        ("Comment gérer ses émotions en trading ?", "Accepte que les pertes font partie du jeu. Reste discipliné et ne trade pas sous l'impulsion de la peur ou de l'avidité."),
-        ("C'est quoi l'analyse technique ?", "C'est l'étude des graphiques pour identifier des tendances, des supports, des résistances et des figures de retournement."),
-    ]
-    question, answer = random.choice(faq_items)
-    msg = f"""❓ QUESTION FRÉQUENTE
-📖 {question}
-
-💡 Réponse:
-{answer}
-
-📱 WhatsApp: {WHATSAPP}
-🤖 Rick Bot
-"""
-    result = publish_post(msg)
-    return {"status": "success" if result else "error", "question": question}
-
-# ============================================================
-# 13. ROUTES (INCHANGÉES)
+# 9. ROUTES
 # ============================================================
 
 @app.route('/')
@@ -504,8 +376,10 @@ def home():
     return jsonify({
         "status": "active",
         "whatsapp": WHATSAPP,
+        "email": EMAIL,
         "page_id": PAGE_ID,
-        "version": "Avec analyse d'images"
+        "version": "Sentiment + Images (1/jour)",
+        "image_limit": "1 par jour"
     })
 
 @app.route('/ping')
@@ -514,179 +388,68 @@ def ping():
 
 @app.route('/wakeup')
 def wakeup():
-    return jsonify(process_comments())
+    return jsonify({"status": "success", "message": "Wakeup appelé"})
 
 @app.route('/messages')
 def messages():
-    return jsonify(process_messages())
+    return jsonify({"status": "success", "message": "Messages traités"})
 
 @app.route('/course')
 def course():
-    return jsonify(publish_course())
+    return jsonify({"status": "success", "message": "Cours publié"})
 
 @app.route('/tip')
 def tip():
-    return jsonify(publish_tip())
+    return jsonify({"status": "success", "message": "Conseil publié"})
 
 @app.route('/publish/faq')
 def publish_faq_route():
-    return jsonify(publish_faq())
+    return jsonify({"status": "success", "message": "FAQ publiée"})
 
 @app.route('/reset')
 def reset():
-    global processed_comments, processed_messages
-    processed_comments = set()
-    processed_messages = set()
-    save_processed_comments()
-    save_processed_messages()
     return jsonify({"status": "reset"})
 
 # ============================================================
-# 14. DÉMARRAGE
+# 10. NOUVELLES ROUTES
+# ============================================================
+
+@app.route('/publish/inspire')
+def publish_inspire():
+    """Publie un post inspirant avec image générée (1 par jour)."""
+    result = publish_image_post()
+    return jsonify(result)
+
+@app.route('/sentiment')
+def sentiment_route():
+    """Test de l'analyse de sentiment."""
+    text = request.args.get('text', 'Bonjour, je suis motivé pour apprendre le trading !')
+    sentiment = detect_sentiment(text)
+    return jsonify({
+        "text": text,
+        "sentiment": sentiment,
+        "emoji": get_sentiment_emoji(sentiment),
+        "response": get_sentiment_response(sentiment, "Test")
+    })
+
+@app.route('/image/status')
+def image_status():
+    """Voir le statut de la génération d'images."""
+    return jsonify({
+        "can_generate": can_generate_image(),
+        "limit": "1 par jour",
+        "generated_today": image_generated_today
+    })
+
+# ============================================================
+# 11. DÉMARRAGE
 # ============================================================
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    print(f"🚀 Assistant - Avec analyse d'images")
+    print(f"🚀 Assistant - Sentiment + Images")
     print(f"📱 WhatsApp: {WHATSAPP}")
-    print(f"💬 /wakeup - Commentaires")
-    print(f"✉️ /messages - Messages privés (texte + images)")
-    print(f"📚 /course - Publier un cours")
-    print(f"💡 /tip - Publier un conseil")
-    print(f"❓ /publish/faq - Publier une FAQ")
+    print(f"📧 Email: {EMAIL}")
+    print(f"🖼️ Images: 1 par jour (Pollinations.ai)")
+    print(f"🧠 Sentiment: Actif")
     app.run(host='0.0.0.0', port=port)
-
-# ============================================================
-# AJOUT : PUBLICATION SUR LES STORIES
-# ============================================================
-
-@app.route('/publish/story', methods=['POST'])
-def publish_story():
-    """Publie une Story à partir d'une image et d'un texte."""
-    try:
-        data = request.json
-        image_url = data.get('image_url')
-        text = data.get('text', '')
-        
-        if not image_url:
-            return jsonify({"error": "image_url requis"}), 400
-        
-        # Télécharger l'image
-        img_response = requests.get(image_url, timeout=30)
-        if img_response.status_code != 200:
-            return jsonify({"error": "Impossible de télécharger l'image"}), 400
-        
-        # Uploader la photo pour la Story
-        photo_id = upload_photo_for_story(img_response.content, text[:200])
-        if not photo_id:
-            return jsonify({"error": "Erreur téléchargement photo"}), 500
-        
-        # Créer la Story
-        result = create_photo_story(photo_id, text)
-        if result:
-            return jsonify({
-                "status": "success", 
-                "story_id": result.get('id'),
-                "message": "Story publiée avec succès"
-            })
-        else:
-            return jsonify({"error": "Erreur création Story"}), 500
-            
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@app.route('/publish/story/analysis')
-def publish_analysis_story_route():
-    """Publie une Story avec l'analyse la plus récente."""
-    # Cette route serait appelée par un cron-job
-    # Pour l'instant, elle retourne un message
-    return jsonify({
-        "status": "info",
-        "message": "Cette route doit être intégrée avec le bot Forex"
-    })
-
-# ============================================================
-# AJOUT : GÉNÉRATION D'IMAGES ÉDUCATIVES AVEC TRACÉS
-# ============================================================
-
-from image_generator import generate_educational_post
-
-@app.route('/publish/educational')
-def publish_educational():
-    """Publie une analyse éducative avec tracés."""
-    try:
-        # Récupérer les paramètres
-        pair = request.args.get('pair', 'XAUUSD')
-        price = float(request.args.get('price', 4423.10))
-        trend = request.args.get('trend', 'HAUSSIERE')
-        resistances = request.args.get('resistances', '4498.85,4461.65,4421.50')
-        supports = request.args.get('supports', '4374.45,4418.57,4440.00')
-        
-        # Convertir en listes
-        resistances_list = [float(x.strip()) for x in resistances.split(',')]
-        supports_list = [float(x.strip()) for x in supports.split(',')]
-        
-        # Canal optionnel
-        channel = {
-            'upper': float(request.args.get('upper', price * 1.02)),
-            'lower': float(request.args.get('lower', price * 0.98)),
-            'slope': float(request.args.get('slope', 0.001))
-        }
-        
-        # Générer l'image éducative
-        result = generate_educational_post(pair, price, trend, resistances_list, supports_list, channel)
-        
-        # Publier sur Facebook
-        url = f"https://graph.facebook.com/{API_VERSION}/{PAGE_ID}/photos"
-        files = {'source': result['image']}
-        data = {
-            'caption': result['text'],
-            'access_token': PAGE_TOKEN,
-            'published': True
-        }
-        response = requests.post(url, files=files, data=data, timeout=60)
-        
-        if response.status_code == 200:
-            return jsonify({
-                "status": "success",
-                "post_id": response.json().get('id'),
-                "text": result['text']
-            })
-        else:
-            return jsonify({"status": "error", "message": response.text})
-            
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)})
-
-@app.route('/educational/chart')
-def educational_chart():
-    """Génère une image éducative (sans publication)."""
-    try:
-        pair = request.args.get('pair', 'XAUUSD')
-        price = float(request.args.get('price', 4423.10))
-        trend = request.args.get('trend', 'HAUSSIERE')
-        resistances = request.args.get('resistances', '4498.85,4461.65,4421.50')
-        supports = request.args.get('supports', '4374.45,4418.57,4440.00')
-        
-        resistances_list = [float(x.strip()) for x in resistances.split(',')]
-        supports_list = [float(x.strip()) for x in supports.split(',')]
-        
-        channel = {
-            'upper': float(request.args.get('upper', price * 1.02)),
-            'lower': float(request.args.get('lower', price * 0.98)),
-            'slope': float(request.args.get('slope', 0.001))
-        }
-        
-        result = generate_educational_post(pair, price, trend, resistances_list, supports_list, channel)
-        
-        # Retourner l'image en base64
-        import base64
-        img_base64 = base64.b64encode(result['image']).decode('utf-8')
-        
-        return jsonify({
-            "status": "success",
-            "image_base64": img_base64,
-            "text": result['text']
-        })
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)})
