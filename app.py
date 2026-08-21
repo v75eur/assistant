@@ -604,3 +604,89 @@ def publish_analysis_story_route():
         "status": "info",
         "message": "Cette route doit être intégrée avec le bot Forex"
     })
+
+# ============================================================
+# AJOUT : GÉNÉRATION D'IMAGES ÉDUCATIVES AVEC TRACÉS
+# ============================================================
+
+from image_generator import generate_educational_post
+
+@app.route('/publish/educational')
+def publish_educational():
+    """Publie une analyse éducative avec tracés."""
+    try:
+        # Récupérer les paramètres
+        pair = request.args.get('pair', 'XAUUSD')
+        price = float(request.args.get('price', 4423.10))
+        trend = request.args.get('trend', 'HAUSSIERE')
+        resistances = request.args.get('resistances', '4498.85,4461.65,4421.50')
+        supports = request.args.get('supports', '4374.45,4418.57,4440.00')
+        
+        # Convertir en listes
+        resistances_list = [float(x.strip()) for x in resistances.split(',')]
+        supports_list = [float(x.strip()) for x in supports.split(',')]
+        
+        # Canal optionnel
+        channel = {
+            'upper': float(request.args.get('upper', price * 1.02)),
+            'lower': float(request.args.get('lower', price * 0.98)),
+            'slope': float(request.args.get('slope', 0.001))
+        }
+        
+        # Générer l'image éducative
+        result = generate_educational_post(pair, price, trend, resistances_list, supports_list, channel)
+        
+        # Publier sur Facebook
+        url = f"https://graph.facebook.com/{API_VERSION}/{PAGE_ID}/photos"
+        files = {'source': result['image']}
+        data = {
+            'caption': result['text'],
+            'access_token': PAGE_TOKEN,
+            'published': True
+        }
+        response = requests.post(url, files=files, data=data, timeout=60)
+        
+        if response.status_code == 200:
+            return jsonify({
+                "status": "success",
+                "post_id": response.json().get('id'),
+                "text": result['text']
+            })
+        else:
+            return jsonify({"status": "error", "message": response.text})
+            
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+@app.route('/educational/chart')
+def educational_chart():
+    """Génère une image éducative (sans publication)."""
+    try:
+        pair = request.args.get('pair', 'XAUUSD')
+        price = float(request.args.get('price', 4423.10))
+        trend = request.args.get('trend', 'HAUSSIERE')
+        resistances = request.args.get('resistances', '4498.85,4461.65,4421.50')
+        supports = request.args.get('supports', '4374.45,4418.57,4440.00')
+        
+        resistances_list = [float(x.strip()) for x in resistances.split(',')]
+        supports_list = [float(x.strip()) for x in supports.split(',')]
+        
+        channel = {
+            'upper': float(request.args.get('upper', price * 1.02)),
+            'lower': float(request.args.get('lower', price * 0.98)),
+            'slope': float(request.args.get('slope', 0.001))
+        }
+        
+        result = generate_educational_post(pair, price, trend, resistances_list, supports_list, channel)
+        
+        # Retourner l'image en base64
+        import base64
+        img_base64 = base64.b64encode(result['image']).decode('utf-8')
+        
+        return jsonify({
+            "status": "success",
+            "image_base64": img_base64,
+            "text": result['text']
+        })
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
